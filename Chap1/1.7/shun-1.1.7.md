@@ -5,4 +5,28 @@
 >これは、⼩さい数値や⼤きい数値に対して、よりうまくいくだろうか。 
 
 私たちは最初、0.001以下の差分であれば許容するとした。しかし、0.001以下の数字について平方根を求めるときには一瞬で条件が満たされてしまう。
-intの限界値やそれを超えるような値に対しても0.001
+intの限界値に近いような値に対しても0.001という精度では非常に小さすぎて無限ループのような状態に陥ってしまうだろう。
+
+そこで、絶対的な誤差ではなく相対的な誤差として求めようという方法が問題文にあるやり方だ。
+この手続きは、以下のように記述される。
+このやり方であれば小さい数や大きい数に対してもうまく働く。
+
+```lisp
+(define (improve guess x)
+  (average guess (/ x guess)))
+
+(define (average x y)
+  (/ (+ x y) 2))
+
+(define (sqrt-iter guess pre-guess x)
+  (if (good-enough? guess pre-guess)
+      guess
+      (sqrt-iter (improve guess x)
+                 guess x)))
+                 
+(define (good-enough? guess pre-guess)
+  (< (abs (- guess pre-guess)) 0.001))
+
+(define (sqrt x)
+  (sqrt-iter 1.0 0 x))
+```
