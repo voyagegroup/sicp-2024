@@ -100,13 +100,6 @@
 				1.5
 				(new-sqrt-iter 1.416 2.0)))
 ; 組み合わせの部分式を評価する
-; (new-sqrt-iter 1.416 2.0)
-;
-(new-if #f
-		1.0
-		(new-if #f
-				1.5
-				(new-sqrt-iter 1.416 2.0)))
 ;(new-sqrt-iter 1.416 2.0)
 ; ->
 ;(new-if (good-enough? 1.416 2.0)
