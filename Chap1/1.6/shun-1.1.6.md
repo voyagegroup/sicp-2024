@@ -18,12 +18,11 @@
 > ))
 > Alyssaが平方根を計算するのにこれを使おうとすると, 何が起きるか, 説明せよ.
 
-2の平方根を求めるとする。
-guessを1、xを2とする。
-まず、new-ifの条件が評価される。
-これは偽になる。
-よって、(sqrt-iter (improve guess x) x)が実行される。
-こうして再起的にsqrt-iterが呼び出されて、(good-enough? guess x)が真になった時点で、guessが返されて実行が終わる。
+Interactions disabled; out of memory
+無限ループに陥ってしまい、答えが出せない。
+これはnew-ifが通常の手続きであるため、引数を先に評価しようとするためである。
+guessが3でxが9の時を考える。このときgood-enough?は真である。
+ただ、作用的順序評価では引数が先に評価される。
+つまり、new-if関数の引数にあるsqrt-iterが呼ばれてしまうのである。
+このため、条件式が真であっても再起を行い続けてしまうため、無限ループになる。
 
-
-https://fatima.adingo.jp/timeline/073d18d1-9428-4cc1-a1f9-b46a39d436c0
