@@ -1,3 +1,5 @@
+#lang racket
+
 (define (sqrt-iter guess x)
   (if (good-enough? guess x)
       guess
