@@ -11,7 +11,7 @@
  これらのプロセスは反復だろうか、それとも再帰だろうか。 
 
 inc, decの本体
-```schema
+```scheme
 (define (inc x)
  (+ x 1))
 
@@ -36,7 +36,7 @@ inc, decの本体
 =9
 ```
 
-```schema
+```scheme
 (define (+ a b)  
   (if (= a 0) b (+ (dec a) (inc b)))) 
 
