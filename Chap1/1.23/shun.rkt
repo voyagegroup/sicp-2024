@@ -9,21 +9,24 @@
 (define (even? n)
   (= (remainder n 2) 0))
 
+(define (next n)
+  (if (= n 2)
+      3
+      (+ n 2)))
+
 (define (smallest-divisor n)
   (find-divisor n 2))
 
 (define (find-divisor n test-divisor)
   (cond ((> (square test-divisor) n) n)
         ((divides? test-divisor n) test-divisor)
-        (else (find-divisor n (+ test-divisor 1)))))
+        (else (find-divisor n (next test-divisor)))))
 
 (define (prime? n)
   (= n (smallest-divisor n)))
 
 (define (runtime)
-  (let* ((milliseconds (current-inexact-milliseconds))
-         (microseconds (* milliseconds 1000)))
-    (exact-round microseconds)))
+  (current-inexact-milliseconds))
 
 (define (timed-prime-test n)
   (newline)
@@ -52,24 +55,20 @@
 
 (search-for-primes 1000 1100)
 
-; 1000の時
-; 1009 *** 0.001220703125
-; 1013 *** 0.0009765625
-; 1019 *** 0.001220703125
+; 1009 *** 0.001953125
+; 1013 *** 0.002197265625
+; 1019 *** 0.0009765625
 
-; 10000の時
-; 10007 *** 0.003173828125
-; 10009 *** 0.004150390625
+; 10007 *** 0.004150390625
+; 10009 *** 0.0029296875
 ; 10037 *** 0.0029296875
 
-; 100000の時
-; 100003 *** 0.010009765625
-; 100019 *** 0.010009765625
+; 100003 *** 0.009033203125
+; 100019 *** 0.009033203125
 ; 100043 *** 0.009033203125
 
-; 1000000の時
-; 1000003 *** 0.029052734375
-; 1000033 *** 0.030029296875
-; 1000037 *** 0.029052734375
+; 1000003 *** 0.028076171875
+; 1000033 *** 0.028076171875
+; 1000037 *** 0.027099609375
 
-; ほぼ3倍(√10倍)になっていると言える。
+; 多少短くなっているものの2倍ほどの変化はない。
