@@ -1,11 +1,9 @@
 #lang racket
 
-(define (runtime) (current-inexact-milliseconds))
-
-(define (square x) (* x x))
-
+; 本文のコピー
 (define (smallest-divisor n)
   (find-divisor n 2))
+
 
 (define (find-divisor n test-divisor)
   (cond ((> (square test-divisor) n) n)
@@ -18,7 +16,19 @@
 (define (prime? n)
   (= n (smallest-divisor n)))
 
-; 問題にあった関数
+; 問題
+(define (next x)
+  (if (= x 2) 3 (+ x 2)))
+
+(define (smallest-divisor-ext n)
+  (find-divisor-ext n 2))
+
+
+; 問題1.22のコピー
+(define (find-divisor-ext n test-divisor)
+  (cond ((> (square test-divisor) n) n)
+    ((divides? test-divisor n) test-divisor)
+    (else (find-divisor-ext n (next test-divisor)))))
 
 (define (timed-prime-test n)
   (newline)
@@ -37,28 +47,18 @@
 (define (search-prime st end)
   (if (> st end)
     (begin
-      (newline)
-      (display "end")
-      (void))
+     (display "end")
+     (void))
     (begin
-      (timed-prime-test st)
-      (search-prime (+ st 2) end))))
+       (timed-prime-test st)
+       (search-prime (+ st 2) end))))
+
+; prime?の置き換え
+(define (prime? n)
+  (= n (smallest-divisor-ext n)))
 
 (search-prime 1001 1101)
 (search-prime 10001 10101)
 (search-prime 100001 100101)
 (search-prime 1000001 1000101)
-
-; 1009 *** 0.00048828125
-; 1013 *** 0.00048828125
-; 1019 *** 0.000732421875
-
-;10007 *** 0.001220703125
-;10009 *** 0.001708984375
-; 10037 *** 0.00146484375
-
-;100003 *** 0.00390625
-;100019 *** 0.00390625
-;100043 *** 0.003662109375
-
 
