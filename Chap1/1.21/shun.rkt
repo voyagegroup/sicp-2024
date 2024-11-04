@@ -7,7 +7,7 @@
 ; A. 1999
 
 ; 19999
-; A. 19999
+; A. 7
 
 #lang racket
 (define (square n)
