@@ -10,7 +10,6 @@
 
 (define (identity x) x)
 
-
 ; factorial
 (define (factorial n)
   (product identity 1 inc n))
