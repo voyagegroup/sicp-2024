@@ -54,11 +54,10 @@
   (cond ((= exp 0) 1)
         ((even? exp)
          (let (
-               ; 
                (x (expmod base (/ exp 2) m))
                )
            (let (
-                 (y (square x))
+                 (y (remainder (square x) m)) ; remainderをするのをわすれていた。
                  )
              (if (= y 1)
                  (if (or (= x 1) (= x (- m 1)))
