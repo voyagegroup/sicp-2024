@@ -18,10 +18,10 @@
 
 (define (cont-frac n d k)
   (define (hoge i result)
-    (if (= i k)
+    (if (= i 0)
         result
-        (hoge (+ i 1) (/ (n i) (+ (d i) result)))))
-  (hoge 1 0))
+        (hoge (- i 1) (/ (n i) (+ (d i) result)))))
+  (hoge (- k 1) (/ (n k) (d k))))
 
 
 (cont-frac (lambda (i) 1.0)
