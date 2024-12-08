@@ -12,6 +12,7 @@
         (lambda (x) x)
         (compose f (repeated-iter (- n 1)))))
   (repeated-iter n))
+; ここまで
 
 (define (smooth f)
   (lambda (x)
