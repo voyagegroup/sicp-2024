@@ -24,6 +24,12 @@
 (define one (lambda (f) (lambda (x) (f x))))
 (define two (lambda (f) (lambda (x) (f (f x)))))
 
-; おそらく
+(define (plus m n)
+    (lambda (f) (lambda (x) (m f ((n f) x)))))
 
-(define three (lambda (f) (lambda (x) (f (f (f x))))))
+; (plus one two)
+; (lambda (f) (lambda (x) ((lambda (g) (lambda (y) (g y)) f) (((lambda (h) (lambda (z) (h (h z)))) f) x))))
+; (lambda (f) (lambda (x) ((lambda (g) (lambda (y) (g y)) f) ((lambda (z) (f (f z)) x)))))
+; (lambda (f) (lambda (x) ((lambda (g) (lambda (y) (g y)) f) (f (f x)))))
+; (lambda (f) (lambda (x) ((lambda (y) (f y)) (f (f x)))))
+; (lambda (f) (lambda (x) (f (f (f x)))))
