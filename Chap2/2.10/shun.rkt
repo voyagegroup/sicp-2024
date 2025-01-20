@@ -5,6 +5,7 @@
 (define (lower-bound i) (car i))
 (define (upper-bound i) (cdr i))
 
+; xの方が0を跨ぐ可能性もあると考え、掛け算の方にも修正
 (define (mul-interval x y)
   (let ((xl (lower-bound x))
         (xu (upper-bound x))
