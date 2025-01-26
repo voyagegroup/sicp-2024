@@ -9,20 +9,27 @@
 ; 全てを正とすると、掛け算の式は
 (define (mul-interval x y)
   (let ((p1 (* (lower-bound x) (lower-bound y)))
-        (p2 (* (lower-bound x) (upper-bound y)))
-        (p3 (* (upper-bound x) (lower-bound y)))
         (p4 (* (upper-bound x) (upper-bound y))))
-    (make-interval (min p1 p2 p3 p4)
-                   (max p1 p2 p3 p4))))
+    (make-interval p1 p4)))
 
-で表される。
-これにx, yの定義を当てはめると、
+; で表される。
+; これにx, yの定義を当てはめると、
 
 (define (mul-interval x y)
   (let ((p1 (* (- xc (/ (* xc a) 2)) (- yc (/ (* yc b) 2))))
-        (p2 (* (- xc (/ (* xc a) 2)) (+ yc (/ (* yc b) 2))))
-        (p3 (* (+ xc (/ (* xc a) 2)) (- yc (/ (* yc b) 2))))
         (p4 (* (+ xc (/ (* xc a) 2)) (+ yc (/ (* yc b) 2)))))
-    (make-interval (min p1 p2 p3 p4)
-                   (max p1 p2 p3 p4))))
+    (make-interval p1 p4)))
 
+; p1は展開すると以下のようになる。
+; (xc - xc*a/2) * (yc - (yc*b/2))
+; =xc*yc-xc*yc*b/2-xc*yc*a/2+xc*yc*a*b/4
+; ここで仮定より、パーセント相対許容誤差が小さいとすると(a*b)は0と扱って無視する。
+; =xc*yc-xc*yc*b/2-xc*yc*a/2
+; =xc*yc - (xc*yc)(b+a)/2
+; よって、下限の誤差はb+aになる。
+; 同様にして上限においても
+; (xc + xc*a/2) * (yc + (yc*b/2))
+; =xc*yc+xc*yc*b/2+xc*yc*a/2+xc*yc*a*b/4
+; (a*b)を０として、
+; =xc*yc + (xc*yc)(b+a)/2
+; こちらもb+aが誤差になる。
