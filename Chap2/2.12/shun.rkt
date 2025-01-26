@@ -14,5 +14,6 @@
 (define (width i)
   (/ (- (upper-bound i) (lower-bound i)) 2))
 
-(define (make-center-percent c g)
-  (make-interval (* c (- 1 (/ g 100))) (* c (+ 1 (/ g 100)))))
+(define (make-center-percent c p)
+  (let ((w (/ (* c (/ p 100)) 2)))
+    (make-center-width c w)))
