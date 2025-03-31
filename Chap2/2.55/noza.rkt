@@ -7,6 +7,7 @@
 ; => 'quote
 
 (display 'abracadabra)
+; => abracadabra
 (newline)
 
 (display ''abracadabra)

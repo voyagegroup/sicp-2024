@@ -3,9 +3,9 @@
 (define (my-equal? a b)
   (or
     (and
-     (not (pair? a))
-     (not (pair? b))
-     (eq? a b))
+      (not (pair? a))
+      (not (pair? b))
+      (eq? a b))
     (and
       (pair? a)
       (pair? b)
