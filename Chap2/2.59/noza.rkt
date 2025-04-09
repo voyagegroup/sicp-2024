@@ -11,6 +11,10 @@
       (cons x set)))
 
 ;; ここから解答
+;; 方針
+;; set1 の n 番目の要素について、
+;; n + 1 番目までの要素と set2 の union-set ができていれば、その set の中に n 番目の要素が含まれているかを
+;; チェックして、含まれていない場合は、adjoin-set で追加する。
 
 (define (union-set set1 set2)
   (cond ((null? set1) set2)
