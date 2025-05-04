@@ -1,0 +1,5 @@
+最高頻度 : theta(1)
+最初のleft-branchで見つかって終了する。
+
+最低頻度: theta(n)
+nに比例してencode-symbolsを呼ぶ回数が増えるため
