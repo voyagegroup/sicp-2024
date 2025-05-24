@@ -6,7 +6,7 @@
 (define (make-record-a name address salary)
   (list name address salary))
 
-(define (make-record-a salary name address)
+(define (make-record-b salary name address)
   (list salary name address))
 
 (define (install-a-package)
