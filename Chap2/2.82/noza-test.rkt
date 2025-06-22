@@ -30,15 +30,10 @@
 (define n4 (make-scheme-number 40))
 ; (displayln (add n1 n2 n3 n4)) ; 100が期待される（scheme-numberに定義がない場合はエラー）
 
-;; 5. 型強制変換のテスト
-(displayln "\n5. 型強制変換のテスト:")
-(displayln "scheme-number -> rational:")
-(define coerced-r (scheme-number->rational n1))
-(displayln coerced-r)
-(displayln "scheme-number -> complex:")
-(define coerced-c (scheme-number->complex n1))
-(displayln coerced-c)
-
-;; 6. 入力の順序を入れ替えるテスト
+;; 5. 入力の順序を入れ替えるテスト
 (displayln "\n6. 入力の順序を入れ替えるテスト:")
 (displayln (add n1 r1 n2)) ; rational型に変換されて
+
+;; 6. 異なる3つの型の差
+(displayln "\n7. 異なる3つの型の差:")
+(displayln (sub n1 n2 r1)) ; rational型に変換されて計算される、期待値は (rational -21 . 2)

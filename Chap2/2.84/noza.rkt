@@ -90,62 +90,73 @@
       (error "Bad tagged datum -- CONTENTS" datum)))
 ; タグ周りの実装（おわり）
 
+#|
+--------------- 2.84 のメインの実装 -----------------------------------
+方針
+1. 型の階層を定義する
+2. 型を上げる手続きを定義する
+
+型を追加するときはこの型の階層を変更すれば良い。
+apply-generic では raise-to-type を使うだけで良いので、既存のシステムに影響はない。
+|#
+
+;; 1. 型の階層を定義する
+(define (type-level type)
+  (cond [(eq? type 'scheme-number) 0]
+        [(eq? type 'rational) 1]
+        [(eq? type 'complex) 2]
+        [else (error "Unknown type -- TYPE-LEVEL" type)]))
+
+;; 2. 目的の型まで型を上げる
+(define (raise-to-type value target-type)
+  (let ((current-type (type-tag value)))
+    (cond [(eq? current-type target-type) value]
+          [(< (type-level current-type) (type-level target-type))
+           (raise-to-type (raise value) target-type)]
+          [else (error "Cannot raise to lower type"
+                       (list current-type target-type))])))
+;; -------------------------------------------------------------------
+
 (define (apply-generic op . args)
-  (define (all-same? lst)
-    (if (null? lst)
-        #t
-        (let ((first (car lst)))
-          (andmap (lambda (x) (equal? x first)) lst))))
-
-  ;; 全ての引数について強制型変換を試みる
-  (define (try-coerce-all args target-type)
-    ;; １つの引数をターゲット型に強制変換する
-    ;; 変換できない場合は #f を返す
-    (define (coerce-arg arg arg-type)
-      (if (eq? arg-type target-type)
-          arg
-          (let ((coercion (get-coercion arg-type target-type)))
-            (if coercion
-                (coercion arg)
-                #f))))
-    ;; map で各引数ごとに強制型変換を試みて、#f があれば失敗
-    (let* ((type-tags (map type-tag args))
-           (coerced-args (map coerce-arg args type-tags)))
-      (if (andmap (lambda (x) x) coerced-args)
-          coerced-args
-          #f)))
-
   (let ((type-tags (map type-tag args)))
     (let ((proc (get op type-tags)))
       (if proc
           (apply proc (map contents args))
-          ;; 引数が3つ以上の場合、左から順に処理を試みる
-          (if (> (length args) 2)
-              (let* ((first (car args))
-                     (second (cadr args))
-                     (rest (cddr args))
-                     (result (apply-generic op first second)))
-                (apply apply-generic op (cons result rest)))
-              ;; 引数が2つの場合、型強制変換を試みる
-              (if (all-same? type-tags)
-                  (error "[same] No method for these types"
-                         (list op type-tags))
-                  (let ((types type-tags))
-                    (define (try-coercions types-to-try)
-                      (if (null? types-to-try)
-                          (error "No method for these types"
-                                 (list op type-tags))
-                          (let ((coerced-args (try-coerce-all args (car types-to-try))))
-                            (if coerced-args
-                                (apply apply-generic op coerced-args)
-                                (try-coercions (cdr types-to-try))))))
-                    (try-coercions types))))))))
+          (if (= (length args) 2)
+              (let ((type1 (car type-tags))
+                    (type2 (cadr type-tags))
+                    (a1 (car args))
+                    (a2 (cadr args)))
+                (if (eq? type1 type2)
+                    (error "[same] No method for these types"
+                           (list op type-tags))
+                    ;; ------- 型が異なる場合に型を上げて揃える処理 ----------------
+                    (let ((level1 (type-level type1))
+                          (level2 (type-level type2)))
+                      (cond ((< level1 level2)
+                             (apply-generic op (raise-to-type a1 type2) a2))
+                            ((> level1 level2)
+                             (apply-generic op a1 (raise-to-type a2 type1)))
+                            (else
+                             (error "No method for these types"
+                                    (list op type-tags)))))))
+                    ;; -----------------------------------------------------
+              ;; 引数が3つ以上の場合、左から順に処理
+              (if (> (length args) 2)
+                  (let* ((first (car args))
+                         (second (cadr args))
+                         (rest (cddr args))
+                         (result (apply-generic op first second)))
+                    (apply apply-generic op (cons result rest)))
+                  (error "No method for these types"
+                         (list op type-tags))))))))
 
 (define (add . args) (apply apply-generic 'add args))
 (define (sub . args) (apply apply-generic 'sub args))
 (define (mul . args) (apply apply-generic 'mul args))
 (define (div . args) (apply apply-generic 'div args))
 (define (exp x y) (apply-generic 'exp x y)) ;; 問題 2.81 によって追加
+(define (raise x) (apply-generic 'raise x)) ;; 問題 2.83 によって追加
 
 ; scheme-number の定義
 (define (install-scheme-number-package)
@@ -161,6 +172,8 @@
        (lambda (x y) (tag (/ x y))))
   (put 'exp '(scheme-number scheme-number)
      (lambda (x y) (tag (expt x y))))
+  (put 'raise '(scheme-number)
+       (lambda (x) ((get 'make 'rational) x 1)))
   (put 'make 'scheme-number
        (lambda (x) (tag x)))
   'done)
@@ -198,6 +211,9 @@
        (lambda (x y) (tag (mul-rat x y))))
   (put 'div '(rational rational)
        (lambda (x y) (tag (div-rat x y))))
+  (put 'raise '(rational)
+       (lambda (x) ((get 'make-from-real-imag 'complex)
+                    (/ (numer x) (denom x)) 0)))
   (put 'make 'rational
        (lambda (n d) (tag (make-rat n d))))
   'done)
@@ -353,7 +369,7 @@
 (put-coercion 'scheme-number 'rational scheme-number->rational)
 (put-coercion 'scheme-number 'complex scheme-number->complex)
 
-(provide add sub mul div exp
+(provide add sub mul div exp raise
          make-scheme-number make-rational
          make-complex-from-real-imag make-complex-from-mag-ang
          scheme-number->rational scheme-number->complex)
