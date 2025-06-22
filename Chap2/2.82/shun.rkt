@@ -230,21 +230,19 @@
 
 (put-coercion 'scheme-number 'complex scheme-number->complex)
 
-(define (scheme-number->scheme-number n) n)
-
-(define (complex->complex z) z)
-(put-coercion 'scheme-number 'scheme-number
-              scheme-number->scheme-number)
-(put-coercion 'complex 'complex complex->complex)
-
 (define (apply-generic op . args)
   (define (try-coercion types)
     (define (try-coercion-itr type i-args)
       (if (null? i-args)
-          (apply apply-generic (cons op (map (lambda (x) ((get-coercion (type-tag x) type) x)) args)))
+          (map (lambda (arg) 
+                 (let ((coercion-proc (get-coercion (type-tag arg) type)))
+                   (if coercion-proc
+                       (coercion-proc arg)
+                       arg)))  ; 変換関数がなければそのまま
+               args)
           (let ((coe (get-coercion (type-tag (car i-args)) type)))
             (cond
-              (coe (try-coercion-itr type (cdr i-args)))
+              ((or coe (eq? (type-tag (car i-args)) type)) (try-coercion-itr type (cdr i-args)))
               (else (try-coercion (cdr types)))      
                 ))))
     (if (null? types)
@@ -252,28 +250,30 @@
         (try-coercion-itr (car types) args)
         ))
   (let ((type-tags (map type-tag args)))
-    (let ((proc (get op type-tags)))
-      (if proc
-          (apply proc (map contents args)) ; ここが全然反応しない。procが見つからない。procが#tになる条件があるようにも思えないが、元々動かない？
-          (try-coercion type-tags)
-          ))))
+    (let ((coercioned-args (try-coercion type-tags)))
+      (display (length coercioned-args))
+      (newline)
+      (display (get op (map type-tag coercioned-args)))
+      (newline)
+      (display (map contents coercioned-args))
+      (newline)
+      (display (apply (get op (map type-tag coercioned-args)) (map contents coercioned-args)))
+      (newline)
+      (if (= (length coercioned-args) 2)
+          (let ((proc (get op (map type-tag coercioned-args))))
+            (if proc
+              (apply proc (map contents coercioned-args))))
+          (apply-generic op (car coercioned-args) (apply apply-generic op (cdr coercioned-args)))))
+      )
+    )
 
-; 動かせなかった...
 
 (define z1 (make-complex-from-real-imag 3 4))  ; 3 + 4i
 (define z2 (make-complex-from-real-imag 1 2))  ; 1 + 2i
 
-(define result (apply-generic 'add z1 z2 z1))
+(define result (apply-generic 'add z1 3))
 
 result
-; (complex rectangular 4 . 6)
+; (complex rectangular 7 . 10)
 
 
-(define result-s (apply-generic 'add 3 4))
-
-result-s
-; 7
-
-(define result-m (apply-generic 'add z1 4))
-
-result-m
