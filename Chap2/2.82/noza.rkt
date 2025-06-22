@@ -1,4 +1,3 @@
-
 #lang racket
 
 (require rnrs/mutable-pairs-6)
@@ -91,57 +90,59 @@
       (error "Bad tagged datum -- CONTENTS" datum)))
 ; タグ周りの実装（おわり）
 
-; (define (apply-generic op . args)
-;   (let ((type-tags (map type-tag args)))
-;     (let ((proc (get op type-tags)))
-;       (if proc
-;           (apply proc (map contents args))
-;           (if (= (length args) 2)
-;               (let ((type1 (car type-tags))
-;                     (type2 (cadr type-tags))
-;                     (a1 (car args))
-;                     (a2 (cadr args)))
-;                 (let ((t1->t2 (get-coercion type1 type2))
-;                       (t2->t1 (get-coercion type2 type1)))
-;                   (cond (t1->t2
-;                          (apply-generic op (t1->t2 a1) a2))
-;                         (t2->t1
-;                          (apply-generic op a1 (t2->t1 a2)))
-;                         (else
-;                          (error "No method for these types"
-;                                 (list op type-tags))))))
-;               (error "No method for these types"
-;                      (list op type-tags)))))))
-
 (define (apply-generic op . args)
+  (define (all-same? lst)
+    (if (null? lst)
+        #t
+        (let ((first (car lst)))
+          (andmap (lambda (x) (equal? x first)) lst))))
+
+  ;; 全ての引数について強制型変換を試みる
+  (define (try-coerce-all args target-type)
+    ;; １つの引数をターゲット型に強制変換する
+    ;; 変換できない場合は #f を返す
+    (define (coerce-arg arg arg-type)
+      (if (eq? arg-type target-type)
+          arg
+          (let ((coercion (get-coercion arg-type target-type)))
+            (if coercion
+                (coercion arg)
+                #f))))
+    ;; map で各引数ごとに強制型変換を試みて、#f があれば失敗
+    (let* ((type-tags (map type-tag args))
+           (coerced-args (map coerce-arg args type-tags)))
+      (if (andmap (lambda (x) x) coerced-args)
+          coerced-args
+          #f)))
+
   (let ((type-tags (map type-tag args)))
     (let ((proc (get op type-tags)))
       (if proc
           (apply proc (map contents args))
-          (if (= (length args) 2)
-              (let ((type1 (car type-tags))
-                    (type2 (cadr type-tags))
-                    (a1 (car args))
-                    (a2 (cadr args)))
-                (let ((t1->t2 (get-coercion type1 type2))
-                      (t2->t1 (get-coercion type2 type1)))
-                  (cond ((eq? type1 type2)
-                         (error "[same] No method for these types"
-                                (list op type-tags)))
-                        (t1->t2
-                         (apply-generic op (t1->t2 a1) a2))
-                        (t2->t1
-                         (apply-generic op a1 (t2->t1 a2)))
-                        (else
-                         (error "No method for these types"
-                                (list op type-tags))))))
-              (error "No method for these types"
-                     (list op type-tags)))))))
+          ;; 引数が3つ以上の場合、再帰的に処理を試みる
+          (if (> (length args) 2)
+              (let ((first (car args))
+                    (rest (cdr args)))
+                (apply-generic op first (apply apply-generic op rest)))
+              ;; 引数が2つの場合、型強制変換を試みる
+              (if (all-same? type-tags)
+                  (error "[same] No method for these types"
+                         (list op type-tags))
+                  (let ((types type-tags))
+                    (define (try-coercions types-to-try)
+                      (if (null? types-to-try)
+                          (error "No method for these types"
+                                 (list op type-tags))
+                          (let ((coerced-args (try-coerce-all args (car types-to-try))))
+                            (if coerced-args
+                                (apply apply-generic op coerced-args)
+                                (try-coercions (cdr types-to-try))))))
+                    (try-coercions types))))))))
 
-(define (add x y) (apply-generic 'add x y))
-(define (sub x y) (apply-generic 'sub x y))
-(define (mul x y) (apply-generic 'mul x y))
-(define (div x y) (apply-generic 'div x y))
+(define (add . args) (apply apply-generic 'add args))
+(define (sub . args) (apply apply-generic 'sub args))
+(define (mul . args) (apply apply-generic 'mul args))
+(define (div . args) (apply apply-generic 'div args))
 (define (exp x y) (apply-generic 'exp x y)) ;; 問題 2.81 によって追加
 
 ; scheme-number の定義
@@ -332,3 +333,25 @@
 (install-rectangular-package)
 (install-polar-package)
 
+;; 簡単のために、scheme-number, rational, complex の生成手続きを定義
+(define (make-scheme-number n)
+  ((get 'make 'scheme-number) n))
+(define (make-rational n d)
+  ((get 'make 'rational) n d))
+(define (make-complex-from-real-imag x y)
+  ((get 'make-from-real-imag 'complex) x y))
+(define (make-complex-from-mag-ang r a)
+  ((get 'make-from-mag-ang 'complex) r a))
+
+;; 型強制変換の定義と登録
+(define (scheme-number->complex n)
+  (make-complex-from-real-imag (contents n) 0))
+(define (scheme-number->rational n)
+  (make-rational (contents n) 1))
+(put-coercion 'scheme-number 'rational scheme-number->rational)
+(put-coercion 'scheme-number 'complex scheme-number->complex)
+
+(provide add sub mul div exp
+         make-scheme-number make-rational
+         make-complex-from-real-imag make-complex-from-mag-ang
+         scheme-number->rational scheme-number->complex)
