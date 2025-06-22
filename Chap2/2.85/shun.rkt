@@ -88,7 +88,10 @@
   (apply-generic 'equ? x y))
 (define (=zero? z)
   (apply-generic '=zero? z))
-
+(define (raise x)
+  (apply-generic 'raise x))
+(define (project z)
+  (apply-generic 'project z))
 
 (define (install-rectangular-package)
    ;; 内部手続き
@@ -170,6 +173,8 @@
     (and (= (real-part z1) (real-part z2)) (= (imag-part z1) (imag-part z2))))
   (define (=zero? z)
     (and (= (real-part z) 0) (= (imag-part z) 0)))
+  (define (project z)
+    (make-real (real-part z)))
 
    ;; システムの他の部分へのインターフェース
   (define (tag z) (attach-tag 'complex z))
@@ -191,6 +196,7 @@
   (put 'angle '(complex) angle)
   (put 'equ? '(complex complex) equ?)
   (put '=zero? '(complex) =zero?)
+  (put 'project '(complex) project)
   'done)
 
 ; 複素数
@@ -201,6 +207,75 @@
 (define (make-complex-from-mag-ang r a)
   ((get 'make-from-mag-ang 'complex) r a))
 
+; 実数
+(define (install-real-package)
+  (define (tag z) (attach-tag 'real z))
+  (define (raise x)
+    (make-complex-from-real-imag x 0))
+  (define (project x)
+    (make-rational (numerator x) (denominator x)))
+
+  (put 'raise '(real) raise)
+  (put 'project '(real) project)
+  )
+
+(install-real-package)
+
+(define (make-real x) (attach-tag 'real x))
+
+; 有理数
+(define (install-rational-package)
+   ;; 内部手続き
+  (define (numer x) (car x))
+  (define (denom x) (cdr x))
+  (define (make-rat n d)
+    (let ((g (gcd n d)))
+      (cons (/ n g) (/ d g))))
+  (define (add-rat x y)
+    (make-rat (+ (* (numer x) (denom y))
+                 (* (numer y) (denom x)))
+              (* (denom x) (denom y))))
+  (define (sub-rat x y)
+    (make-rat (- (* (numer x) (denom y))
+                 (* (numer y) (denom x)))
+              (* (denom x) (denom y))))
+  (define (mul-rat x y)
+    (make-rat (* (numer x) (numer y))
+              (* (denom x) (denom y))))
+  (define (div-rat x y)
+    (make-rat (* (numer x) (denom y))
+              (* (denom x) (numer y))))
+  (define (equ? x y)
+    (and (= (numer x) (numer y)) (= (denom x) (denom y))))
+  (define (=zero? z)
+    (= (numer z) 0))
+  (define (raise x)
+    (make-real (/ (car x) (cdr x))))
+  (define (project x)
+    (numer x))
+
+   ;; システムの他の部分へのインターフェース
+  (define (tag x) (attach-tag 'rational x))
+  (put 'add '(rational rational)
+       (lambda (x y) (tag (add-rat x y))))
+  (put 'sub '(rational rational)
+       (lambda (x y) (tag (sub-rat x y))))
+  (put 'mul '(rational rational)
+       (lambda (x y) (tag (mul-rat x y))))
+  (put 'div '(rational rational)
+       (lambda (x y) (tag (div-rat x y))))
+
+  (put 'make 'rational
+       (lambda (n d) (tag (make-rat n d))))
+  (put 'equ? '(rational rational) equ?)
+  (put '=zero? '(rational) =zero?)
+  (put 'raise '(rational) raise)
+  (put 'project '(rational) project)
+  'done)
+(install-rational-package)
+
+(define (make-rational n d)
+  ((get 'make 'rational) n d))
 
 (define (install-scheme-number-package)
   (define (tag x)
@@ -220,54 +295,90 @@
   (put '=zero? '(scheme-number)
        (lambda (n) (= n 0)))
   (put 'exp '(scheme-number scheme-number)
-     (lambda (x y) (tag (expt x y)))) 
+     (lambda (x y) (tag (expt x y))))
+  (put 'raise '(scheme-number)
+       (lambda (x) (make-rational x 1)))
   'done)
 
 (install-scheme-number-package)
+
+(define (make-integer x) (attach-tag 'scheme-number x))
 
 (define (scheme-number->complex n)
   (make-complex-from-real-imag (contents n) 0))
 
 (put-coercion 'scheme-number 'complex scheme-number->complex)
 
-(define (apply-generic op . args)
-  (define (try-coercion types)
-    (define (try-coercion-itr type i-args)
-      (if (null? i-args)
-          (map (lambda (arg) 
-                 (let ((coercion-proc (get-coercion (type-tag arg) type)))
-                   (if coercion-proc
-                       (coercion-proc arg)
-                       arg)))  ; 変換関数がなければそのまま
-               args)
-          (let ((coe (get-coercion (type-tag (car i-args)) type)))
-            (cond
-              ((or coe (eq? (type-tag (car i-args)) type)) (try-coercion-itr type (cdr i-args)))
-              (else (try-coercion (cdr types)))      
-                ))))
-    (if (null? types)
-        (error "No method for these types")
-        (try-coercion-itr (car types) args)
-        ))
-  (let ((type-tags (map type-tag args)))
-    (let ((coercioned-args (try-coercion type-tags)))
-      (cond
-        ((<= (length coercioned-args) 2)
-          (let ((proc (get op (map type-tag coercioned-args))))
-            (if proc
-              (apply proc (map contents coercioned-args)))))
-          (else (apply-generic op (car coercioned-args) (apply apply-generic op (cdr coercioned-args))))
-          ))
-      )
-    )
+(define (find-index lst element)
+  (define (helper lst element index)
+    (cond
+      [(null? lst) #f]
+      [(equal? (car lst) element) index]
+      [else (helper (cdr lst) element (+ index 1))]))
+  (helper lst element 0))
 
+(define tower '(scheme-number rational real complex))
+
+(define (down x)
+  (if (or (= (find-index tower (type-tag x)) 0) (not (equal? x (raise (project x)))))
+      x
+      (down (project x))))
+
+(define (apply-generic op . args)
+  (let ((type-tags (map type-tag args)))
+    (let ((proc (get op type-tags)))
+      (if proc
+          (apply proc (map contents args))
+          (if (= (length args) 2)
+              (let ((type1 (car type-tags))
+                    (type2 (cadr type-tags))
+                    (a1 (car args))
+                    (a2 (cadr args)))
+                (let ((f1 (find-index tower type1))
+                      (f2 (find-index tower type2))
+                      )
+                  (cond
+                        ((eq? type1 type2)
+                         (down (apply-generic op a1 a2)))
+                        ((< f1 f2)
+                         (down (apply-generic op (apply-generic 'raise a1) a2)))
+                        ((> f1 f2)
+                         (down (apply-generic op a1 (apply-generic 'raise a2))))
+                        (else
+                         (error "No method for these types"
+                                (list op type-tags))))))
+              (error "No method for these types"
+                     (list op type-tags)))))))
+
+
+(down (make-complex-from-real-imag 1 0))
+; 1
 
 (define z1 (make-complex-from-real-imag 3 4))  ; 3 + 4i
 (define z2 (make-complex-from-real-imag 1 2))  ; 1 + 2i
+(define z3 (make-rational 1 3))
+(define z4 (make-complex-from-real-imag 2 0))
 
-(define result (apply-generic 'add z1 3 z2))
+(define result (apply-generic 'add z1 z2))
 
 result
-; (complex rectangular 7 . 6)
+; (complex rectangular 4 . 6)
 
 
+(define result-s (apply-generic 'add 3 4))
+
+result-s
+; 7
+
+(define result-m (apply-generic 'add z1 4))
+
+result-m
+; (complex rectangular 7 . 4)
+
+
+(define result-r (apply-generic 'add z3 5))
+result-r
+; (rational 16 . 3)
+
+(apply-generic 'add z4 8)
+; 10
