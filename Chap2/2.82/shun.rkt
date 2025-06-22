@@ -252,12 +252,12 @@
   (let ((type-tags (map type-tag args)))
     (let ((coercioned-args (try-coercion type-tags)))
       (cond
-        ((= (length coercioned-args) 2)
+        ((<= (length coercioned-args) 2)
           (let ((proc (get op (map type-tag coercioned-args))))
             (if proc
               (apply proc (map contents coercioned-args)))))
-          ((> (length coercioned-args) 2) (apply-generic op (car coercioned-args) (apply apply-generic op (cdr coercioned-args))))
-          (else  coercioned-args)))
+          (else (apply-generic op (car coercioned-args) (apply apply-generic op (cdr coercioned-args))))
+          ))
       )
     )
 
@@ -265,9 +265,9 @@
 (define z1 (make-complex-from-real-imag 3 4))  ; 3 + 4i
 (define z2 (make-complex-from-real-imag 1 2))  ; 1 + 2i
 
-(define result (apply-generic 'add z1 3))
+(define result (apply-generic 'add z1 3 z2))
 
 result
-; (complex rectangular 7 . 10)
+; (complex rectangular 7 . 6)
 
 
