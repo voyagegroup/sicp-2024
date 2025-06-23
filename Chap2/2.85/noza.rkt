@@ -110,7 +110,13 @@
   (let ((type-tags (map type-tag args)))
     (let ((proc (get op type-tags)))
       (if proc
-          (apply proc (map contents args))
+          (let ((result (apply proc (map contents args))))
+            ;; 結果を単純化する（ただし、project, drop, raise, equ?は除く）---------
+            ;; 除かないと、数値でない型や drop された型が返ってきてしまう
+            (if (memq op '(project drop raise equ?))
+                result
+                (drop result)))
+            ;; ---------------------------------------------------------------
           (if (= (length args) 2)
               (let ((type1 (car type-tags))
                     (type2 (cadr type-tags))
@@ -145,6 +151,7 @@
 (define (exp x y) (apply-generic 'exp x y)) ;; 問題 2.81 によって追加
 (define (raise x) (apply-generic 'raise x)) ;; 問題 2.83 によって追加
 (define (equ? x y) (apply-generic 'equ? x y)) ;; 問題 2.85 によって追加
+(define (project x) (apply-generic 'project x)) ;; 問題 2.85 によって追加
 
 ; scheme-number の定義
 (define (install-scheme-number-package)
@@ -209,6 +216,11 @@
                     (/ (numer x) (denom x)) 0)))
   (put 'equ? '(rational rational)
        (lambda (x y) (equ-rat? x y)))
+  (put 'project '(rational)
+       (lambda (x)
+         (if (= (denom x) 1)
+             ((get 'make 'scheme-number) (numer x))
+             ((get 'make 'scheme-number) (/ (numer x) (denom x))))))
   (put 'make 'rational
        (lambda (n d) (tag (make-rat n d))))
   'done)
@@ -259,6 +271,14 @@
   (put 'angle '(complex) angle)
   (put 'equ? '(complex complex)
        (lambda (z1 z2) (equ-complex? z1 z2)))
+  (put 'project '(complex)
+       (lambda (z)
+         (let ((real (real-part z)))
+           (cond [(integer? real)
+                  ((get 'make 'rational) real 1)]
+                 [else
+                  ((get 'make 'rational)
+                   (numerator real) (denominator real))]))))
   (put 'make-from-mag-ang 'complex
        (lambda (r a) (tag (make-from-mag-ang r a))))
   'done)
@@ -369,7 +389,31 @@
 (put-coercion 'scheme-number 'rational scheme-number->rational)
 (put-coercion 'scheme-number 'complex scheme-number->complex)
 
-(provide add sub mul div exp raise equ?
+#| ------------------------------------------------------------------------------
+2.85 のメインの部分
+|#
+; drop 手続きの定義
+(define (drop x)
+  (let ((type (type-tag x)))
+    (cond [(eq? type 'scheme-number) x] ; 塔のレベルが0にしても良いかも
+          [(can-drop? x)
+           (drop (project x))]
+          [else x])))
+
+;; オブジェクトが下げられるかチェック
+;; 数をprojectし, 結果をraiseして出発した型に戻した時, 出発したのと同じ何かで終れば, 数は切り下げられる.
+;; 上記をうまく実装できなかったので、愚直に定義した
+(define (can-drop? x)
+  (let ((type (type-tag x)))
+    (cond [(eq? type 'scheme-number) #f]  ; scheme-numberは最下層
+          [(eq? type 'rational)
+           (= (cdr (contents x)) 1)]  ; denom = 1
+          [(eq? type 'complex)
+           (= (cdr (contents (contents x))) 0)]  ; imag-part = 0
+          [else #f])))
+#| ------------------------------------------------------------------------------|#
+
+(provide add sub mul div exp raise equ? project drop
          make-scheme-number make-rational
          make-complex-from-real-imag make-complex-from-mag-ang
          scheme-number->rational scheme-number->complex)
