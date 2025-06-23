@@ -90,62 +90,68 @@
       (error "Bad tagged datum -- CONTENTS" datum)))
 ; タグ周りの実装（おわり）
 
+;; 1. 型の階層を定義する
+(define (type-level type)
+  (cond [(eq? type 'scheme-number) 0]
+        [(eq? type 'rational) 1]
+        [(eq? type 'complex) 2]
+        [else (error "Unknown type -- TYPE-LEVEL" type)]))
+
+;; 2. 目的の型まで型を上げる
+(define (raise-to-type value target-type)
+  (let ((current-type (type-tag value)))
+    (cond [(eq? current-type target-type) value]
+          [(< (type-level current-type) (type-level target-type))
+           (raise-to-type (raise value) target-type)]
+          [else (error "Cannot raise to lower type"
+                       (list current-type target-type))])))
+
 (define (apply-generic op . args)
-  (define (all-same? lst)
-    (if (null? lst)
-        #t
-        (let ((first (car lst)))
-          (andmap (lambda (x) (equal? x first)) lst))))
-
-  ;; 全ての引数について強制型変換を試みる
-  (define (try-coerce-all args target-type)
-    ;; １つの引数をターゲット型に強制変換する
-    ;; 変換できない場合は #f を返す
-    (define (coerce-arg arg arg-type)
-      (if (eq? arg-type target-type)
-          arg
-          (let ((coercion (get-coercion arg-type target-type)))
-            (if coercion
-                (coercion arg)
-                #f))))
-    ;; map で各引数ごとに強制型変換を試みて、#f があれば失敗
-    (let* ((type-tags (map type-tag args))
-           (coerced-args (map coerce-arg args type-tags)))
-      (if (andmap (lambda (x) x) coerced-args)
-          coerced-args
-          #f)))
-
   (let ((type-tags (map type-tag args)))
     (let ((proc (get op type-tags)))
       (if proc
-          (apply proc (map contents args))
-          ;; 引数が3つ以上の場合、左から順に処理を試みる
-          (if (> (length args) 2)
-              (let* ((first (car args))
-                     (second (cadr args))
-                     (rest (cddr args))
-                     (result (apply-generic op first second)))
-                (apply apply-generic op (cons result rest)))
-              ;; 引数が2つの場合、型強制変換を試みる
-              (if (all-same? type-tags)
-                  (error "[same] No method for these types"
-                         (list op type-tags))
-                  (let ((types type-tags))
-                    (define (try-coercions types-to-try)
-                      (if (null? types-to-try)
-                          (error "No method for these types"
-                                 (list op type-tags))
-                          (let ((coerced-args (try-coerce-all args (car types-to-try))))
-                            (if coerced-args
-                                (apply apply-generic op coerced-args)
-                                (try-coercions (cdr types-to-try))))))
-                    (try-coercions types))))))))
+          (let ((result (apply proc (map contents args))))
+            ;; 結果を単純化する（ただし、project, drop, raise, equ?は除く）---------
+            ;; 除かないと、数値でない型や drop された型が返ってきてしまう
+            (if (memq op '(project drop raise equ?))
+                result
+                (drop result)))
+            ;; ---------------------------------------------------------------
+          (if (= (length args) 2)
+              (let ((type1 (car type-tags))
+                    (type2 (cadr type-tags))
+                    (a1 (car args))
+                    (a2 (cadr args)))
+                (if (eq? type1 type2)
+                    (error "[same] No method for these types"
+                           (list op type-tags))
+                    (let ((level1 (type-level type1))
+                          (level2 (type-level type2)))
+                      (cond ((< level1 level2)
+                             (apply-generic op (raise-to-type a1 type2) a2))
+                            ((> level1 level2)
+                             (apply-generic op a1 (raise-to-type a2 type1)))
+                            (else
+                             (error "No method for these types"
+                                    (list op type-tags)))))))
+              ;; 引数が3つ以上の場合、左から順に処理
+              (if (> (length args) 2)
+                  (let* ((first (car args))
+                         (second (cadr args))
+                         (rest (cddr args))
+                         (result (apply-generic op first second)))
+                    (apply apply-generic op (cons result rest)))
+                  (error "No method for these types"
+                         (list op type-tags))))))))
 
 (define (add . args) (apply apply-generic 'add args))
 (define (sub . args) (apply apply-generic 'sub args))
 (define (mul . args) (apply apply-generic 'mul args))
 (define (div . args) (apply apply-generic 'div args))
 (define (exp x y) (apply-generic 'exp x y)) ;; 問題 2.81 によって追加
+(define (raise x) (apply-generic 'raise x)) ;; 問題 2.83 によって追加
+(define (equ? x y) (apply-generic 'equ? x y)) ;; 問題 2.85 によって追加
+(define (project x) (apply-generic 'project x)) ;; 問題 2.85 によって追加
 
 ; scheme-number の定義
 (define (install-scheme-number-package)
@@ -161,6 +167,10 @@
        (lambda (x y) (tag (/ x y))))
   (put 'exp '(scheme-number scheme-number)
      (lambda (x y) (tag (expt x y))))
+  (put 'raise '(scheme-number)
+       (lambda (x) ((get 'make 'rational) x 1)))
+  (put 'equ? '(scheme-number scheme-number)
+       (lambda (x y) (= x y)))
   (put 'make 'scheme-number
        (lambda (x) (tag x)))
   'done)
@@ -187,6 +197,9 @@
   (define (div-rat x y)
     (make-rat (* (numer x) (denom y))
               (* (denom x) (numer y))))
+  (define (equ-rat? x y)
+    (and (= (numer x) (numer y))
+         (= (denom x) (denom y))))
 
    ;; システムの他の部分へのインターフェース
   (define (tag x) (attach-tag 'rational x))
@@ -198,6 +211,16 @@
        (lambda (x y) (tag (mul-rat x y))))
   (put 'div '(rational rational)
        (lambda (x y) (tag (div-rat x y))))
+  (put 'raise '(rational)
+       (lambda (x) ((get 'make-from-real-imag 'complex)
+                    (/ (numer x) (denom x)) 0)))
+  (put 'equ? '(rational rational)
+       (lambda (x y) (equ-rat? x y)))
+  (put 'project '(rational)
+       (lambda (x)
+         (if (= (denom x) 1)
+             ((get 'make 'scheme-number) (numer x))
+             ((get 'make 'scheme-number) (/ (numer x) (denom x))))))
   (put 'make 'rational
        (lambda (n d) (tag (make-rat n d))))
   'done)
@@ -222,6 +245,9 @@
   (define (div-complex z1 z2)
     (make-from-mag-ang (/ (magnitude z1) (magnitude z2))
                        (- (angle z1) (angle z2))))
+  (define (equ-complex? z1 z2)
+    (and (= (real-part z1) (real-part z2))
+         (= (imag-part z1) (imag-part z2))))
   (define (real-part z) (apply-generic 'real-part z))
   (define (imag-part z) (apply-generic 'imag-part z))
   (define (magnitude z) (apply-generic 'magnitude z))
@@ -239,10 +265,20 @@
        (lambda (z1 z2) (tag (div-complex z1 z2))))
   (put 'make-from-real-imag 'complex
        (lambda (x y) (tag (make-from-real-imag x y))))
-  (put 'real-part '(complex) 'real-part)
-  (put 'imag-part '(complex) 'imag-part)
-  (put 'magnitude '(complex) 'magnitude)
-  (put 'angle '(complex) 'angle)
+  (put 'real-part '(complex) real-part)
+  (put 'imag-part '(complex) imag-part)
+  (put 'magnitude '(complex) magnitude)
+  (put 'angle '(complex) angle)
+  (put 'equ? '(complex complex)
+       (lambda (z1 z2) (equ-complex? z1 z2)))
+  (put 'project '(complex)
+       (lambda (z)
+         (let ((real (real-part z)))
+           (cond [(integer? real)
+                  ((get 'make 'rational) real 1)]
+                 [else
+                  ((get 'make 'rational)
+                   (numerator real) (denominator real))]))))
   (put 'make-from-mag-ang 'complex
        (lambda (r a) (tag (make-from-mag-ang r a))))
   'done)
@@ -353,7 +389,31 @@
 (put-coercion 'scheme-number 'rational scheme-number->rational)
 (put-coercion 'scheme-number 'complex scheme-number->complex)
 
-(provide add sub mul div exp
+#| ------------------------------------------------------------------------------
+2.85 のメインの部分
+|#
+; drop 手続きの定義
+(define (drop x)
+  (let ((type (type-tag x)))
+    (cond [(eq? type 'scheme-number) x] ; 塔のレベルが0にしても良いかも
+          [(can-drop? x)
+           (drop (project x))]
+          [else x])))
+
+;; オブジェクトが下げられるかチェック
+;; 数をprojectし, 結果をraiseして出発した型に戻した時, 出発したのと同じ何かで終れば, 数は切り下げられる.
+;; 上記をうまく実装できなかったので、愚直に定義した
+(define (can-drop? x)
+  (let ((type (type-tag x)))
+    (cond [(eq? type 'scheme-number) #f]  ; scheme-numberは最下層
+          [(eq? type 'rational)
+           (= (cdr (contents x)) 1)]  ; denom = 1
+          [(eq? type 'complex)
+           (= (cdr (contents (contents x))) 0)]  ; imag-part = 0
+          [else #f])))
+#| ------------------------------------------------------------------------------|#
+
+(provide add sub mul div exp raise equ? project drop
          make-scheme-number make-rational
          make-complex-from-real-imag make-complex-from-mag-ang
          scheme-number->rational scheme-number->complex)
