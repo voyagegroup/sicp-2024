@@ -116,9 +116,9 @@
     (let ((proc (get op type-tags)))
       (if proc
           (let ((result (apply proc (map contents args))))
-            ;; 結果を単純化する（ただし、project, drop, raise, equ?は除く）---------
+            ;; 結果を単純化する（ただし、project, drop, raise, equ?, =zero?は除く）---------
             ;; 除かないと、数値でない型や drop された型が返ってきてしまう
-            (if (memq op '(project drop raise equ?))
+            (if (memq op '(project drop raise equ? =zero?))
                 result
                 (drop result)))
             ;; ---------------------------------------------------------------
@@ -153,10 +153,11 @@
 (define (sub . args) (apply apply-generic 'sub args))
 (define (mul . args) (apply apply-generic 'mul args))
 (define (div . args) (apply apply-generic 'div args))
-(define (exp x y) (apply-generic 'exp x y)) ;; 問題 2.81 によって追加
-(define (raise x) (apply-generic 'raise x)) ;; 問題 2.83 によって追加
-(define (equ? x y) (apply-generic 'equ? x y)) ;; 問題 2.85 によって追加
-(define (project x) (apply-generic 'project x)) ;; 問題 2.85 によって追加
+(define (exp x y) (apply-generic 'exp x y)) ;; 問題 2.81 で追加
+(define (raise x) (apply-generic 'raise x)) ;; 問題 2.83 で追加
+(define (equ? x y) (apply-generic 'equ? x y)) ;; 問題 2.85 で追加
+(define (project x) (apply-generic 'project x)) ;; 問題 2.85 で追加
+(define (=zero? x) (apply-generic '=zero? x)) ;; 問題 2.87 で追加
 
 ; drop 手続きの定義
 (define (drop x)
@@ -419,36 +420,9 @@
 (put-coercion 'scheme-number 'complex scheme-number->complex)
 
 ;; ===========================================
-;; =zero? の実装
-;; ===========================================
-
-;; 汎用 =zero? 手続き
-(define (=zero? x) (apply-generic '=zero? x))
-
-;; 各型に対する =zero? の実装
-(put '=zero? '(scheme-number) (lambda (n) (= n 0)))
-(put '=zero? '(rational)
-     (lambda (r) (= (car r) 0)))  ; numer = 0
-(put '=zero? '(complex)
-     (lambda (z)
-       ;; z は complex の内容で rectangular または polar タグ付き
-       (let ((real ((get 'real-part (list (type-tag z))) (contents z)))
-             (imag ((get 'imag-part (list (type-tag z))) (contents z))))
-         (and (= real 0) (= imag 0)))))
-
-;; ===========================================
-;; 2.87 多項式パッケージ（ここに追加実装予定）
-;; ===========================================
-
-#|
-  書籍の内容を以下に実装していく。
-|#
-
-;; ===========================================
 ;; 多項式パッケージの実装
 ;; ===========================================
 
-;; polynomial パッケージのインストール
 (define (install-polynomial-package)
   ;; 内部手続き
   ;; 多項式の表現
@@ -534,7 +508,21 @@
        (lambda (p1 p2) (tag (mul-poly p1 p2))))
   (put 'make 'polynomial
        (lambda (var terms) (tag (make-poly var terms))))
+  (put '=zero? '(polynomial)
+       (lambda (p) (zero-polynomial? p)))
   'done)
+
+;; 多項式がゼロかどうかを判定する内部手続き
+(define (zero-polynomial? p)
+  (define (zero-term-list? terms)
+    (or (null? terms)
+        (and (zero-coeff? (cadr (car terms)))
+             (zero-term-list? (cdr terms)))))
+  (define (zero-coeff? coeff)
+    (cond [(number? coeff) (= coeff 0)]
+          [(pair? coeff) (=zero? coeff)]
+          [else #f]))
+  (zero-term-list? (cdr p)))  ; term-list
 
 ;; polynomial パッケージのインストール
 (install-polynomial-package)
@@ -542,3 +530,32 @@
 ;; 多項式のコンストラクタ
 (define (make-polynomial var terms)
   ((get 'make 'polynomial) var terms))
+
+;; ===========================================
+;; =zero? のテスト
+;; ===========================================
+
+;; テスト用のデータ定義
+(define zero-poly (make-polynomial 'x '()))  ; 空の多項式 = ゼロ多項式
+(define zero-poly2 (make-polynomial 'x (list (list 2 0) (list 1 0) (list 0 0))))  ; 係数がすべて0の多項式
+(define non-zero-poly (make-polynomial 'x (list (list 2 1) (list 1 0) (list 0 3))))  ; 1*x^2 + 0*x + 3 = x^2 + 3
+(define mixed-zero-poly (make-polynomial 'x (list (list 3 0) (list 1 2))))  ; 0*x^3 + 2*x
+
+;; テスト実行
+(define (test-=zero?)
+  (display "=zero? テスト開始\n")
+  (display "空の多項式: ")
+  (display (=zero? zero-poly))
+  (display "\n")
+  (display "係数がすべて0の多項式: ")
+  (display (=zero? zero-poly2))
+  (display "\n")
+  (display "非零多項式: ")
+  (display (=zero? non-zero-poly))
+  (display "\n")
+  (display "一部係数が0の多項式: ")
+  (display (=zero? mixed-zero-poly))
+  (display "\n")
+  (display "=zero? テスト完了\n"))
+
+(test-=zero?)
