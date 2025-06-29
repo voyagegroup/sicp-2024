@@ -492,7 +492,7 @@
                    (else
                     (adjoin-term
                      (make-term (order t1)
-                                (+ (coeff t1) (coeff t2)))
+                                (add (coeff t1) (coeff t2)))
                      (add-terms (rest-terms L1)
                                 (rest-terms L2)))))))))
 
@@ -509,7 +509,7 @@
         (let ((t2 (first-term L)))
           (adjoin-term
            (make-term (+ (order t1) (order t2))
-                      (* (coeff t1) (coeff t2)))
+                      (mul (coeff t1) (coeff t2)))
            (mul-term-by-all-terms t1 (rest-terms L))))))
 
   ;; システムの他の部分とのインターフェース
