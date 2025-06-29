@@ -326,29 +326,37 @@
 
 (define (apply-generic op . args)
   (let ((type-tags (map type-tag args)))
-    (let ((proc (get op type-tags)))
-      (if proc
-          (apply proc (map contents args))
-          (if (= (length args) 2)
-              (let ((type1 (car type-tags))
-                    (type2 (cadr type-tags))
-                    (a1 (car args))
-                    (a2 (cadr args)))
-                (let ((f1 (find-index tower type1))
-                      (f2 (find-index tower type2))
-                      )
-                  (cond
-                        ((eq? type1 type2)
-                         (down (apply-generic op a1 a2)))
-                        ((< f1 f2)
-                         (down (apply-generic op (apply-generic 'raise a1) a2)))
-                        ((> f1 f2)
-                         (down (apply-generic op a1 (apply-generic 'raise a2))))
-                        (else
-                         (error "No method for these types"
-                                (list op type-tags))))))
-              (error "No method for these types"
-                     (list op type-tags)))))))
+    (if (<= (length args) 2)
+      (let ((proc (get op type-tags)))
+        (if proc
+            (apply proc (map contents args))
+            (if (= (length args) 2)
+                (let ((type1 (car type-tags))
+                      (type2 (cadr type-tags))
+                      (a1 (car args))
+                      (a2 (cadr args)))
+                  (let ((f1 (find-index tower type1))
+                        (f2 (find-index tower type2))
+                        )
+                    (cond
+                          ((eq? type1 type2)
+                           (down (apply-generic op a1 a2)))
+                          ((< f1 f2)
+                           (down (apply-generic op (apply-generic 'raise a1) a2)))
+                          ((> f1 f2)
+                           (down (apply-generic op a1 (apply-generic 'raise a2))))
+                          (else
+                           (error "No method for these types"
+                                  (list op type-tags))))))
+                (error "No method for these types"
+                       (list op type-tags)))))
+        (let* ((first (car args))
+                         (second (cadr args))
+                         (rest (cddr args))
+                         (result (apply-generic op first second)))
+                    (apply apply-generic op (cons result rest)))
+        )
+    ))
 
 
 (down (make-complex-from-real-imag 1 0))
