@@ -447,6 +447,18 @@
   (define (order term) (car term))
   (define (coeff term) (cadr term))
 
+  ; 多項式がゼロかどうかを判定する内部手続き
+  (define (zero-polynomial? p)
+    (define (zero-term-list? terms)
+      (or (null? terms)
+          (and (zero-coeff? (cadr (car terms)))
+              (zero-term-list? (cdr terms)))))
+    (define (zero-coeff? coeff)
+      (cond [(number? coeff) (= coeff 0)]
+            [(pair? coeff) (=zero? coeff)]
+            [else #f]))
+    (zero-term-list? (cdr p)))  ; term-list
+
   ;; 多項式の加算
   (define (add-poly p1 p2)
     (if (same-variable? (variable p1) (variable p2))
@@ -511,18 +523,6 @@
   (put '=zero? '(polynomial)
        (lambda (p) (zero-polynomial? p)))
   'done)
-
-;; 多項式がゼロかどうかを判定する内部手続き
-(define (zero-polynomial? p)
-  (define (zero-term-list? terms)
-    (or (null? terms)
-        (and (zero-coeff? (cadr (car terms)))
-             (zero-term-list? (cdr terms)))))
-  (define (zero-coeff? coeff)
-    (cond [(number? coeff) (= coeff 0)]
-          [(pair? coeff) (=zero? coeff)]
-          [else #f]))
-  (zero-term-list? (cdr p)))  ; term-list
 
 ;; polynomial パッケージのインストール
 (install-polynomial-package)
