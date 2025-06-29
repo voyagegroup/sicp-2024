@@ -372,16 +372,11 @@
   (define (same-variable? v1 v2)
     (and (variable? v1) (variable? v2) (eq? v1 v2)))
   ; 2.87
-  (define (=zero? p)
-    (define (=zero?-coeff c)
-      (cond ((number? c) (= c 0))
-            ((pair? c) (=zero?-term-list c))
-            (else #f)))
-    (define (=zero?-term-list tl)
-      (or (null? tl)
-          (and (=zero?-coeff (coeff (car tl)))
-               (=zero?-term-list (cdr tl)))))
-    (=zero?-term-list (term-list p)))
+  (define (zero?-poly p)
+    (zero?-terms (term-list p)))
+  (define (zero?-terms L)
+    (or (empty-termlist? L)
+        (and (=zero? (first-term L)) (zero?-terms (rest-terms L)))))
 
    ;; 項と項リストの表現
   (define (adjoin-term term term-list)
@@ -456,7 +451,7 @@
   (put 'make 'polynomial
        (lambda (var terms) (tag (make-poly var terms))))
   (put '=zero? '(polynomial)
-       =zero?)
+       (lambda (p) (zero?-poly p)))
   'done)
 
 
