@@ -575,47 +575,81 @@
 ;; polynomial パッケージのインストール
 (install-polynomial-package)
 
-;; 多項式のコンストラクタ
+;; ここが解答
+;; (...) 形式から ((..) (..) (..) ...) 形式に変換
+(define (coeff-list->term-list coeff-list)
+  (define (iter coeffs order result)
+    (cond [(null? coeffs) result]
+          [(and (number? (car coeffs)) (= (car coeffs) 0))
+           (iter (cdr coeffs) (- order 1) result)]
+          [else
+           (iter (cdr coeffs) (- order 1)
+                 (cons (list order (car coeffs)) result))]))
+  (let ((degree (- (length coeff-list) 1)))
+    (iter coeff-list degree '())))
+
+;; 多項式のコンストラクタ（従来の項リスト形式）
 (define (make-polynomial var terms)
   ((get 'make 'polynomial) var terms))
 
+;; 係数リスト形式から多項式を作成するコンストラクタ
+(define (make-polynomial-from-coeffs var coeff-list)
+  (make-polynomial var (coeff-list->term-list coeff-list)))
+
 ;; ===========================================
-;; 多項式減算のテスト
+;; 係数リスト形式の多項式テスト
 ;; ===========================================
 
-;; テスト用の多項式定義
-(define p1 (make-polynomial 'x (list (list 3 2) (list 2 1) (list 1 -1) (list 0 5))))  ; 2x^3 + x^2 - x + 5
-(define p2 (make-polynomial 'x (list (list 3 1) (list 1 2) (list 0 3))))              ; x^3 + 2x + 3
-(define p3 (make-polynomial 'x (list (list 2 3) (list 1 4))))                          ; 3x^2 + 4x
+;; 係数リスト形式での多項式作成テスト
+(define (test-coeff-list-polynomials)
+  (display "\n係数リスト形式の多項式テスト開始\n")
 
-;; テスト実行
-(define (test-polynomial-subtraction)
-  (display "\n多項式減算テスト開始\n")
-  (display "p1 = 2x^3 + x^2 - x + 5\n")
-  (display "p2 = x^3 + 2x + 3\n")
-  (display "p3 = 3x^2 + 4x\n\n")
 
-  (display "p1 - p2 = ")
-  (let ((result1 (sub p1 p2)))
+  ;; 係数リスト形式で多項式を作成
+  (define p4 (make-polynomial-from-coeffs 'x '(3 4 8 3)))   ; 3x^3 + 4x^2 + 8x + 3
+  (define p5 (make-polynomial-from-coeffs 'x '(2 0 1)))     ; 2x^2 + x
+  (define p6 (make-polynomial-from-coeffs 'x '(1 0 0 5)))   ; x^3 + 5
+
+  (display "p4 = 3x^3 + 4x^2 + 8x + 3 = ")
+  (display p4)
+  (display "\n")
+  (display "p5 = 2x^2 + x = ")
+  (display p5)
+  (display "\n")
+  (display "p6 = x^3 + 5 = ")
+  (display p6)
+  (display "\n\n")
+
+  ;; 変換関数のテスト
+  (display "変換テスト:\n")
+  (display "係数リスト (3 4 8 3) -> 項リスト: ")
+  (display (coeff-list->term-list '(3 4 8 3)))
+  (display "\n")
+  (display "係数リスト (2 0 1) -> 項リスト: ")
+  (display (coeff-list->term-list '(2 0 1)))
+  (display "\n")
+  (display "係数リスト (1 0 0 5) -> 項リスト: ")
+  (display (coeff-list->term-list '(1 0 0 5)))
+  (display "\n\n")
+
+  ;; 演算テスト
+  (display "演算テスト:\n")
+  (display "p4 + p5 = ")
+  (let ((result1 (add p4 p5)))
     (display result1)
     (display "\n"))
 
-  (display "p2 - p1 = ")
-  (let ((result2 (sub p2 p1)))
+  (display "p6 - p4 = ")
+  (let ((result2 (sub p6 p4)))
     (display result2)
     (display "\n"))
 
-  (display "p1 - p3 = ")
-  (let ((result3 (sub p1 p3)))
+  (display "p5 * p6 = ")
+  (let ((result3 (mul p5 p6)))
     (display result3)
     (display "\n"))
 
-  (display "p3 - p3 = ")
-  (let ((result4 (sub p3 p3)))
-    (display result4)
-    (display " (should be zero)\n"))
-
-  (display "多項式減算テスト完了\n"))
+  (display "係数リスト形式テスト完了\n"))
 
 ;; テスト実行
-(test-polynomial-subtraction)
+(test-coeff-list-polynomials)
