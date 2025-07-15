@@ -1,6 +1,5 @@
 #lang racket
 
-
 (require rnrs/mutable-pairs-6)
 
 (define (square x) (* x x))
@@ -168,7 +167,8 @@
   (let ((type (type-tag x)))
     (cond [(eq? type 'scheme-number) #f]
           [(eq? type 'rational)
-           (= (cdr (contents x)) 1)]
+           (let ((d (cdr (contents x))))
+             (and (number? d) (= d 1)))]
           [(eq? type 'complex)
            (= (cdr (contents (contents x))) 0)]
           [else #f])))
@@ -203,25 +203,24 @@
   (define (numer x) (car x))
   (define (denom x) (cdr x))
   (define (make-rat n d)
-    (let ((g (gcd n d)))
-      (cons (/ n g) (/ d g))))
+    (cons n d))
   (define (add-rat x y)
-    (make-rat (+ (* (numer x) (denom y))
-                 (* (numer y) (denom x)))
-              (* (denom x) (denom y))))
+    (make-rat (add (mul (numer x) (denom y))
+                   (mul (numer y) (denom x)))
+              (mul (denom x) (denom y))))
   (define (sub-rat x y)
-    (make-rat (- (* (numer x) (denom y))
-                 (* (numer y) (denom x)))
-              (* (denom x) (denom y))))
+    (make-rat (sub (mul (numer x) (denom y))
+                   (mul (numer y) (denom x)))
+              (mul (denom x) (denom y))))
   (define (mul-rat x y)
-    (make-rat (* (numer x) (numer y))
-              (* (denom x) (denom y))))
+    (make-rat (mul (numer x) (numer y))
+              (mul (denom x) (denom y))))
   (define (div-rat x y)
-    (make-rat (* (numer x) (denom y))
-              (* (denom x) (numer y))))
+    (make-rat (mul (numer x) (denom y))
+              (mul (denom x) (numer y))))
   (define (equ-rat? x y)
-    (and (= (numer x) (numer y))
-         (= (denom x) (denom y))))
+    (and (equ? (numer x) (numer y))
+         (equ? (denom x) (denom y))))
 
    ;; システムの他の部分へのインターフェース
   (define (tag x) (attach-tag 'rational x))
@@ -239,12 +238,14 @@
   (put 'equ? '(rational rational)
        (lambda (x y) (equ-rat? x y)))
   (put '=zero? '(rational)
-       (lambda (r) (= (numer r) 0)))
+       (lambda (r) (=zero? (numer r))))
   (put 'project '(rational)
        (lambda (x)
-         (if (= (denom x) 1)
-             ((get 'make 'scheme-number) (numer x))
-             ((get 'make 'scheme-number) (/ (numer x) (denom x))))))
+         (let ((n (numer x))
+               (d (denom x)))
+           (if (and (number? n) (number? d) (= d 1))
+               ((get 'make 'scheme-number) n)
+               ((get 'make 'scheme-number) (/ n d))))))
   (put 'make 'rational
        (lambda (n d) (tag (make-rat n d))))
   'done)
@@ -418,19 +419,6 @@
 (put-coercion 'scheme-number 'rational scheme-number->rational)
 (put-coercion 'scheme-number 'complex scheme-number->complex)
 
-;; ===========================================
-;; 多項式パッケージの実装
-;; ===========================================
-
-#| ------ 今回の変更ポイント --------------------
-  変更ポイント：
-  - div-poly: 2つの多項式を受け取り、商と剰余のリストを返す
-  - div-terms: は長い除算のアルゴリズムを実装しています
-  - 被除数の最高次の項を除数の最高次の項で割り、その結果を商に追加
-  - 除数に商を掛けて被除数から引き、残りで再帰的に処理を続けます
-  - 除数の次数が被除数の次数を超えたら、被除数を剰余として返します
-|#
-
 (define (install-polynomial-package)
   ;; 内部手続き
   ;; 多項式の表現
@@ -553,8 +541,6 @@
                       (mul (ensure-tagged (coeff t1)) (ensure-tagged (coeff t2))))
            (mul-term-by-all-terms t1 (rest-terms L))))))
 
-  ;; ここが解答
-  ;; 実装の方針は SICP の本文に書いてある
   ;; 多項式の除算
   (define (div-poly p1 p2)
     (if (same-variable? (variable p1) (variable p2))
@@ -599,6 +585,8 @@
        (lambda (var terms) (tag (make-poly var terms))))
   (put '=zero? '(polynomial)
        (lambda (p) (zero-polynomial? p)))
+  (put 'equ? '(polynomial polynomial)
+       (lambda (p1 p2) (equ? (sub (tag p1) (tag p2)) (tag (make-poly (variable p1) (the-empty-termlist))))))
   'done)
 
 ;; polynomial パッケージのインストール
@@ -608,32 +596,12 @@
 (define (make-polynomial var terms)
   ((get 'make 'polynomial) var terms))
 
-;; テスト用コード
-;; 例: (x^5 - 1) ÷ (x^2 - 1)
-;; 期待される結果: 商 = x^3 + x, 剰余 = x - 1
-(define p1 (make-polynomial 'x '((5 1) (0 -1))))
-(define p2 (make-polynomial 'x '((2 1) (0 -1))))
+(define p1 (make-polynomial 'x '((2 1)(0 1))))
+(define p2 (make-polynomial 'x '((3 1)(0 1))))
+(define rf (make-rational p2 p1))
 
-(displayln "多項式除算のテスト:")
-(displayln "被除数 p1 = x^5 - 1")
-(displayln "除数 p2 = x^2 - 1")
-
-(define result (div p1 p2))
-(displayln "結果:")
-(displayln (format "商: ~a" (car result)))
-(displayln (format "剰余: ~a" (cadr result)))
-
-;; もう一つのテスト
-;; (x^3 - 2x^2 - 4) ÷ (x - 3)
-;; 期待される結果: 商 = x^2 + x + 3, 剰余 = 5
-(define p3 (make-polynomial 'x '((3 1) (2 -2) (0 -4))))
-(define p4 (make-polynomial 'x '((1 1) (0 -3))))
-
-(displayln "\n2つ目のテスト:")
-(displayln "被除数 p3 = x^3 - 2x^2 - 4")
-(displayln "除数 p4 = x - 3")
-
-(define result2 (div p3 p4))
-(displayln "結果:")
-(displayln (format "商: ~a" (car result2)))
-(displayln (format "剰余: ~a" (cadr result2)))
+(display rf)
+(newline)
+(display (add rf rf))
+; わかりやすい見た目 2x^5 + 2x^3+2x^2+2 / x^4 + 2x^2 + 1
+; 簡約されてない！
