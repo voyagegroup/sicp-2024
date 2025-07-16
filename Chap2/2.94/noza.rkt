@@ -155,6 +155,8 @@
 (define (equ? x y) (apply-generic 'equ? x y))
 (define (project x) (apply-generic 'project x))
 (define (=zero? x) (apply-generic '=zero? x))
+(define (greatest-common-divisor x y) (apply-generic 'gcd x y))
+
 
 (define (drop x)
   (let ((type (type-tag x)))
@@ -193,6 +195,8 @@
        (lambda (x y) (= x y)))
   (put '=zero? '(scheme-number)
        (lambda (n) (= n 0)))
+  (put 'gcd '(scheme-number scheme-number)
+       (lambda (a b) (tag (gcd a b))))
   (put 'make 'scheme-number
        (lambda (x) (tag x)))
   'done)
@@ -203,7 +207,12 @@
   (define (numer x) (car x))
   (define (denom x) (cdr x))
   (define (make-rat n d)
-    (cons n d))
+    (cond [(and (number? n) (number? d))
+           (let ((g (gcd n d)))
+             (cons (/ n g) (/ d g)))]
+          [else
+           (let ((g (greatest-common-divisor n d)))
+             (cons (div n g) (div d g)))]))
   (define (add-rat x y)
     (make-rat (add (mul (numer x) (denom y))
                    (mul (numer y) (denom x)))
@@ -553,7 +562,7 @@
   ;; 項リストの除算
   (define (div-terms L1 L2)
     (if (empty-termlist? L1)
-        (list '(0 0) '(0 0)) ; 被除数が 0 なら (() ()) を返す
+        (list (the-empty-termlist) (the-empty-termlist)) ; 被除数が 0 なら (() ()) を返す
         (let ((t1 (first-term L1))
               (t2 (first-term L2)))
           (if (> (order t2) (order t1))
@@ -571,6 +580,23 @@
                                     (car rest-of-result))
                         (cadr rest-of-result))))))))
 
+  (define (remainder-terms L1 L2)
+    (cadr (div-terms L1 L2)))
+
+  (define (gcd-terms a b)
+    (if (empty-termlist? b)
+        a
+        (gcd-terms b (remainder-terms a b))))
+
+  (define (gcd-poly p1 p2)
+    (if (same-variable? (variable p1) (variable p2))
+        (let ((result-terms (gcd-terms (term-list p1) (term-list p2))))
+          (if (empty-termlist? result-terms)
+              (make-poly (variable p1) (list (list 0 1)))
+              (make-poly (variable p1) result-terms)))
+        (error "Polys not in same var -- GCD-POLY"
+               (list p1 p2))))
+
   ;; システムの他の部分とのインターフェース
   (define (tag p) (attach-tag 'polynomial p))
   (put 'add '(polynomial polynomial)
@@ -581,6 +607,8 @@
        (lambda (p1 p2) (tag (mul-poly p1 p2))))
   (put 'div '(polynomial polynomial)
        (lambda (p1 p2) (div-poly p1 p2)))
+  (put 'gcd '(polynomial polynomial)
+       (lambda (p1 p2) (tag (gcd-poly p1 p2))))
   (put 'make 'polynomial
        (lambda (var terms) (tag (make-poly var terms))))
   (put '=zero? '(polynomial)
@@ -592,16 +620,16 @@
 ;; polynomial パッケージのインストール
 (install-polynomial-package)
 
+
 ;; 多項式のコンストラクタ
 (define (make-polynomial var terms)
   ((get 'make 'polynomial) var terms))
 
-(define p1 (make-polynomial 'x '((2 1)(0 1))))
-(define p2 (make-polynomial 'x '((3 1)(0 1))))
-(define rf (make-rational p2 p1))
+;; 問題2.94のテスト
+(define p1 (make-polynomial 'x '((4 1) (3 -1) (2 -2) (1 2))))
+(define p2 (make-polynomial 'x '((3 1) (1 -1))))
+(display (greatest-common-divisor p1 p2))
 
-(display rf)
-(newline)
-(display (add rf rf))
-; わかりやすい見た目 2x^5 + 2x^3+2x^2+2 / x^4 + 2x^2 + 1
-; 簡約されてない！
+;; p1 = x(x-1)(x^2 - 2)
+;; p2 = x(x-1)(x+1)
+;; gcd(p1, p2) = x(x-1)
