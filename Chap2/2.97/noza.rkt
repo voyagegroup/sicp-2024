@@ -673,23 +673,3 @@
 ;; 多項式のコンストラクタ
 (define (make-polynomial var terms)
   ((get 'make 'polynomial) var terms))
-
-;; 問題2.95の例：P1をGCDとして、Q1とQ2を構成
-(define P1 (make-polynomial 'x '((2 1) (1 -2) (0 1))))
-(define P2 (make-polynomial 'x '((2 11) (0 7))))
-(define P3 (make-polynomial 'x '((1 13) (0 5))))
-
-(define Q1 (mul P1 P2))
-(define Q2 (mul P1 P3))
-
-(display "Q1 = ")
-(display Q1)
-(newline)
-
-(display "Q2 = ")
-(display Q2)
-(newline)
-
-(display "GCD(Q1, Q2) = ")
-(display (greatest-common-divisor Q1 Q2))
-(newline)
