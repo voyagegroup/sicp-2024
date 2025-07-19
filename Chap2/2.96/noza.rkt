@@ -584,11 +584,6 @@
     (cadr (div-terms L1 L2)))
 
   (define (gcd-terms a b)
-    (display "gcd-terms a: ")
-    (display a)
-    (display " b: ")
-    (display b)
-    (newline)
     (if (empty-termlist? b)
         a
         (gcd-terms b (remainder-terms a b))))
