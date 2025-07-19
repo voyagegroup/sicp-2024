@@ -673,3 +673,43 @@
 ;; 多項式のコンストラクタ
 (define (make-polynomial var terms)
   ((get 'make 'polynomial) var terms))
+
+;; reduce-terms: 二つの項リストnとdを引数として取り、最低項まで引き下げる
+(define (reduce-terms n d)
+  ;; 任意の変数名を使用（ここではダミー変数として'xを使うが、結果には影響しない）
+  (let* ((dummy-var 'x)
+         (p1 (make-polynomial dummy-var n))
+         (p2 (make-polynomial dummy-var d))
+         (gcd-poly (greatest-common-divisor p1 p2))
+         (result1 (div p1 gcd-poly))
+         (result2 (div p2 gcd-poly)))
+    (list (term-list (car result1))
+          (term-list (car result2)))))
+
+;; reduce-poly: 二つの多項式を最低項まで引き下げる
+(define (reduce-poly p1 p2)
+  (if (same-variable? (variable p1) (variable p2))
+      (let ((result (reduce-terms (term-list p1) (term-list p2))))
+        (list (make-polynomial (variable p1) (car result))
+              (make-polynomial (variable p1) (cadr result))))
+      (error "Polys not in same var -- REDUCE-POLY"
+             (list p1 p2))))
+
+;; 同じ変数かチェックする補助手続き（グローバルスコープ用）
+(define (same-variable? v1 v2)
+  (and (symbol? v1) (symbol? v2) (eq? v1 v2)))
+
+;; 多項式の変数と項リストを取得する補助手続き（グローバルスコープ用）
+(define (variable p) (car (contents p)))
+(define (term-list p) (cdr (contents p)))
+
+;; テスト
+(define p1 (make-polynomial 'x '((2 6) (1 3))))  ; 6x^2 + 3x
+(define p2 (make-polynomial 'x '((2 4) (1 2))))  ; 4x^2 + 2x
+(displayln "Test reduce-poly:")
+(displayln "p1 = 6x^2 + 3x")
+(displayln "p2 = 4x^2 + 2x")
+(define reduced (reduce-poly p1 p2))
+(displayln "After reduction:")
+(displayln (car reduced))  ; 分子
+(displayln (cadr reduced)) ; 分母
