@@ -583,10 +583,29 @@
   (define (remainder-terms L1 L2)
     (cadr (div-terms L1 L2)))
 
+  ;; 擬剰余を計算する手続き
+  (define (pseudoremainder-terms L1 L2)
+    (if (empty-termlist? L1)
+        (the-empty-termlist)
+        (let ((t1 (first-term L1))
+              (t2 (first-term L2)))
+          (if (> (order t2) (order t1))
+              L1  ; 除数の方が次数が大きければ被除数をそのまま返す
+              (let* ((O1 (order t1))
+                     (O2 (order t2))
+                     (c (coeff t2))
+                     ;; 整数化因子 c^(1+O1-O2)
+                     (integerizing-factor (exp (ensure-tagged c) 
+                                              (make-scheme-number (+ 1 (- O1 O2)))))
+                     ;; L1に整数化因子を掛ける
+                     (integerized-L1 (mul-terms (list (make-term 0 integerizing-factor)) L1)))
+                ;; 通常の剰余計算を行う
+                (cadr (div-terms integerized-L1 L2)))))))
+
   (define (gcd-terms a b)
     (if (empty-termlist? b)
         a
-        (gcd-terms b (remainder-terms a b))))
+        (gcd-terms b (pseudoremainder-terms a b))))
 
   (define (gcd-poly p1 p2)
     (if (same-variable? (variable p1) (variable p2))
@@ -625,11 +644,22 @@
 (define (make-polynomial var terms)
   ((get 'make 'polynomial) var terms))
 
-(define P1 (make-polynomial 'x '((1 2) (1 -2) (0 1))))
+;; 問題2.95の例：P1をGCDとして、Q1とQ2を構成
+(define P1 (make-polynomial 'x '((2 1) (1 -2) (0 1))))
 (define P2 (make-polynomial 'x '((2 11) (0 7))))
 (define P3 (make-polynomial 'x '((1 13) (0 5))))
 
 (define Q1 (mul P1 P2))
 (define Q2 (mul P1 P3))
 
+(display "Q1 = ")
+(display Q1)
+(newline)
+
+(display "Q2 = ")
+(display Q2)
+(newline)
+
+(display "GCD(Q1, Q2) = ")
 (display (greatest-common-divisor Q1 Q2))
+(newline)
