@@ -156,6 +156,7 @@
 (define (project x) (apply-generic 'project x))
 (define (=zero? x) (apply-generic '=zero? x))
 (define (greatest-common-divisor x y) (apply-generic 'gcd x y))
+(define (reduce x y) (apply-generic 'reduce x y))
 
 
 (define (drop x)
@@ -197,6 +198,10 @@
        (lambda (n) (= n 0)))
   (put 'gcd '(scheme-number scheme-number)
        (lambda (a b) (tag (gcd a b))))
+  (put 'reduce '(scheme-number scheme-number)
+       (lambda (n d)
+         (let ((g (gcd n d)))
+           (list (tag (/ n g)) (tag (/ d g))))))
   (put 'make 'scheme-number
        (lambda (x) (tag x)))
   'done)
@@ -207,12 +212,8 @@
   (define (numer x) (car x))
   (define (denom x) (cdr x))
   (define (make-rat n d)
-    (cond [(and (number? n) (number? d))
-           (let ((g (gcd n d)))
-             (cons (/ n g) (/ d g)))]
-          [else
-           (let ((g (greatest-common-divisor n d)))
-             (cons (div n g) (div d g)))]))
+    (let ((result (reduce n d)))
+      (cons (car result) (cadr result))))
   (define (add-rat x y)
     (make-rat (add (mul (numer x) (denom y))
                    (mul (numer y) (denom x)))
@@ -646,6 +647,26 @@
         (error "Polys not in same var -- GCD-POLY"
                (list p1 p2))))
 
+  (define (reduce-terms n d)
+    ;; 任意の変数名を使用（ここではダミー変数として'xを使うが、結果には影響しない）
+    (let* ((dummy-var 'x)
+           (p1 (make-poly dummy-var n))
+           (p2 (make-poly dummy-var d))
+           (gcd-poly (gcd-terms (term-list p1) (term-list p2)))
+           (result1 (div-terms (term-list p1) gcd-poly))
+           (result2 (div-terms (term-list p2) gcd-poly)))
+      (list (car result1)
+            (car result2))))
+
+  ;; reduce-poly: 二つの多項式を最低項まで引き下げる
+  (define (reduce-poly p1 p2)
+    (if (same-variable? (variable p1) (variable p2))
+        (let ((result (reduce-terms (term-list p1) (term-list p2))))
+          (list (make-poly (variable p1) (car result))
+                (make-poly (variable p1) (cadr result))))
+        (error "Polys not in same var -- REDUCE-POLY"
+               (list p1 p2))))
+
   ;; システムの他の部分とのインターフェース
   (define (tag p) (attach-tag 'polynomial p))
   (put 'add '(polynomial polynomial)
@@ -658,6 +679,10 @@
        (lambda (p1 p2) (div-poly p1 p2)))
   (put 'gcd '(polynomial polynomial)
        (lambda (p1 p2) (tag (gcd-poly p1 p2))))
+  (put 'reduce '(polynomial polynomial)
+       (lambda (p1 p2)
+         (let ((result (reduce-poly p1 p2)))
+           (list (tag (car result)) (tag (cadr result))))))
   (put 'make 'polynomial
        (lambda (var terms) (tag (make-poly var terms))))
   (put '=zero? '(polynomial)
@@ -674,42 +699,18 @@
 (define (make-polynomial var terms)
   ((get 'make 'polynomial) var terms))
 
-;; reduce-terms: 二つの項リストnとdを引数として取り、最低項まで引き下げる
-(define (reduce-terms n d)
-  ;; 任意の変数名を使用（ここではダミー変数として'xを使うが、結果には影響しない）
-  (let* ((dummy-var 'x)
-         (p1 (make-polynomial dummy-var n))
-         (p2 (make-polynomial dummy-var d))
-         (gcd-poly (greatest-common-divisor p1 p2))
-         (result1 (div p1 gcd-poly))
-         (result2 (div p2 gcd-poly)))
-    (list (term-list (car result1))
-          (term-list (car result2)))))
-
-;; reduce-poly: 二つの多項式を最低項まで引き下げる
-(define (reduce-poly p1 p2)
-  (if (same-variable? (variable p1) (variable p2))
-      (let ((result (reduce-terms (term-list p1) (term-list p2))))
-        (list (make-polynomial (variable p1) (car result))
-              (make-polynomial (variable p1) (cadr result))))
-      (error "Polys not in same var -- REDUCE-POLY"
-             (list p1 p2))))
-
-;; 同じ変数かチェックする補助手続き（グローバルスコープ用）
-(define (same-variable? v1 v2)
-  (and (symbol? v1) (symbol? v2) (eq? v1 v2)))
-
-;; 多項式の変数と項リストを取得する補助手続き（グローバルスコープ用）
-(define (variable p) (car (contents p)))
-(define (term-list p) (cdr (contents p)))
 
 ;; テスト
-(define p1 (make-polynomial 'x '((2 6) (1 3))))  ; 6x^2 + 3x
-(define p2 (make-polynomial 'x '((2 4) (1 2))))  ; 4x^2 + 2x
-(displayln "Test reduce-poly:")
-(displayln "p1 = 6x^2 + 3x")
-(displayln "p2 = 4x^2 + 2x")
-(define reduced (reduce-poly p1 p2))
-(displayln "After reduction:")
-(displayln (car reduced))  ; 分子
-(displayln (cadr reduced)) ; 分母
+(define p1 (make-polynomial 'x '((1 1)(0 1))))     ; x + 1
+(define p2 (make-polynomial 'x '((3 1)(0 -1))))    ; x^3 - 1
+(define p3 (make-polynomial 'x '((1 1))))          ; x
+(define p4 (make-polynomial 'x '((2 1)(0 -1))))    ; x^2 - 1
+
+(define rf1 (make-rational p1 p2))
+(define rf2 (make-rational p3 p4))
+
+(displayln "Test rational functions:")
+(displayln "rf1 = (x+1)/(x^3-1)")
+(displayln "rf2 = x/(x^2-1)")
+(displayln "rf1 + rf2 = ")
+(displayln (add rf1 rf2))
