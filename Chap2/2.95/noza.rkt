@@ -584,6 +584,11 @@
     (cadr (div-terms L1 L2)))
 
   (define (gcd-terms a b)
+    (display "gcd-terms a: ")
+    (display a)
+    (display " b: ")
+    (display b)
+    (newline)
     (if (empty-termlist? b)
         a
         (gcd-terms b (remainder-terms a b))))
@@ -624,3 +629,12 @@
 ;; 多項式のコンストラクタ
 (define (make-polynomial var terms)
   ((get 'make 'polynomial) var terms))
+
+(define P1 (make-polynomial 'x '((1 2) (1 -2) (0 1))))
+(define P2 (make-polynomial 'x '((2 11) (0 7))))
+(define P3 (make-polynomial 'x '((1 13) (0 5))))
+
+(define Q1 (mul P1 P2))
+(define Q2 (mul P1 P3))
+
+(display (greatest-common-divisor Q1 Q2))
