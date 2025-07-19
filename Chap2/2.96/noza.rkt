@@ -595,16 +595,46 @@
                      (O2 (order t2))
                      (c (coeff t2))
                      ;; 整数化因子 c^(1+O1-O2)
-                     (integerizing-factor (exp (ensure-tagged c) 
+                     (integerizing-factor (exp (ensure-tagged c)
                                               (make-scheme-number (+ 1 (- O1 O2)))))
                      ;; L1に整数化因子を掛ける
                      (integerized-L1 (mul-terms (list (make-term 0 integerizing-factor)) L1)))
                 ;; 通常の剰余計算を行う
                 (cadr (div-terms integerized-L1 L2)))))))
 
+  ;; 項リストの全係数の最大公約数を求める
+  (define (gcd-of-coeffs terms)
+    (define (coeff-value c)
+      (cond [(number? c) c]
+            [(and (pair? c) (eq? (car c) 'scheme-number)) (cdr c)]
+            [else (error "Unknown coefficient type" c)]))
+    (define (gcd-iter terms result)
+      (if (empty-termlist? terms)
+          result
+          (let ((c (coeff-value (coeff (first-term terms)))))
+            (gcd-iter (rest-terms terms) (gcd result c)))))
+    (if (empty-termlist? terms)
+        1
+        (let ((first-coeff (coeff-value (coeff (first-term terms)))))
+          (gcd-iter (rest-terms terms) (abs first-coeff)))))
+
+  ;; 項リストの全係数を整数で割る
+  (define (divide-terms-by-gcd terms divisor)
+    (if (empty-termlist? terms)
+        (the-empty-termlist)
+        (let ((t (first-term terms)))
+          (adjoin-term (make-term (order t)
+                                 (div (ensure-tagged (coeff t))
+                                      (make-scheme-number divisor)))
+                       (divide-terms-by-gcd (rest-terms terms) divisor)))))
+
   (define (gcd-terms a b)
     (if (empty-termlist? b)
-        a
+        ;; 結果の係数から共通因子を除去
+        (let ((g (gcd-of-coeffs a)))
+          (if (= g 1)
+              a
+              (divide-terms-by-gcd a g)))
         (gcd-terms b (pseudoremainder-terms a b))))
 
   (define (gcd-poly p1 p2)
