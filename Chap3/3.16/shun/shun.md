@@ -39,3 +39,8 @@ yを共有しているが、consとcdrでそれぞれ重複して
 
 (count-pairs y7)
 ```
+
+## count-pairsが何も返さないケース
+![alt text](image-3.png)
+
+make-cycleを使って循環させるとnot pair?に反応しないため無限ループに陥り、何も返さない。
