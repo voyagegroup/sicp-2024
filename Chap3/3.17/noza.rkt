@@ -1,17 +1,16 @@
-#lang racket
+#lang sicp
 
-; make-hasheq キー比較に eq? を使うハッシュテーブル
-; visited にカウントした対をキーとして登録してカウントの時に対を数えていたら 0 を返す
+; 訪問済みの cons セル（対）を `visited` リストで管理し、
+; 再訪したペアは数えない。`memq` により同一性(eq?)で判定する。
 
 (define (count-pairs x)
-  (define visited (make-hasheq))
-  (define (walk v)
-    (cond
-      [(not (pair? v)) 0]
-      [(hash-has-key? visited v) 0]
-      [else (hash-set! visited v #t)
-            (+ 1 (walk (car v)) (walk (cdr v)))]))
-  (walk x))
+  (let ((visited '()))
+    (define (walk v)
+      (cond ((not (pair? v)) 0)
+            ((memq v visited) 0)
+            (else (set! visited (cons v visited))
+                  (+ 1 (walk (car v)) (walk (cdr v))))))
+    (walk x)))
 
 ;; 3.16 で作った構造
 (define list-three (list 'a 'b 'c))
