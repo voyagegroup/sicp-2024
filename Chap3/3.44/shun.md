@@ -1,0 +1,3 @@
+Louisは正しくない。
+transferにおいては、amountを引数として渡すので逐次的な処理が行われる限りexchangeのような問題は起きない。
+exchangeはその中でbalanceを取得するため、巧妙な方法を使う必要があった。
