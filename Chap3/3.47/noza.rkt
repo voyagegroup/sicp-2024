@@ -1,5 +1,9 @@
 #lang sicp
 
+;; 方針
+;; cell が長さ 1 だったのを n に拡張。
+;; acuire と release の時に cell を走査して状態を変更できる cell が見つかったら状態を変更する
+
 ;; 基本ツール
 (define (clear! cell)
   (set-car! cell #f))
