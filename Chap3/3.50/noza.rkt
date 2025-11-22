@@ -1,9 +1,17 @@
 #lang sicp
 
 (define (stream-car stream) (car stream))
-
 (define (stream-cdr stream) (force (cdr stream)))
 
+(define the-empty-stream '())
+(define (stream-null? s) (null? s))
+
+(define (stream-enumerate-interval low high)
+  (if (> low high)
+      the-empty-stream
+      (cons-stream low (stream-enumerate-interval (+ low 1) high))))
+
+;; 解答
 (define (stream-map proc . argstreams)
   (if (stream-null? (car argstreams))
       the-empty-stream
@@ -18,15 +26,6 @@
 (define-syntax cons-stream
   (syntax-rules ()
     ((_ a b) (cons a (delay b)))))
-
-(define the-empty-stream '())
-(define (stream-null? s) (null? s))
-
-;; マクロを使って (low high) の数値列を作成するストリームを作成
-(define (stream-enumerate-interval low high)
-  (if (> low high)
-      the-empty-stream
-      (cons-stream low (stream-enumerate-interval (+ low 1) high))))
 
 ;; ストリームから指定した要素数のリストを作成する
 (define (stream-take s k)
