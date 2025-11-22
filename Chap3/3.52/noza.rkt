@@ -36,6 +36,14 @@
       (cons-stream low (stream-enumerate-interval (+ low 1) high))
 ))
 
+(define (stream-filter pred stream)
+  (cond ((stream-null? stream) the-empty-stream)
+        ((pred (stream-car stream))
+         (cons-stream (stream-car stream)
+                      (stream-filter pred
+                                     (stream-cdr stream))))
+        (else (stream-filter pred (stream-cdr stream)))))
+
 (define (stream-map proc . argstreams)
   (if (stream-null? (car argstreams))
       the-empty-stream
@@ -44,18 +52,33 @@
        (apply stream-map
               (cons proc (map stream-cdr argstreams))))))
 
-(define (show x)
-  (display x)
-  (newline)
-  x)
+;; 以下解答
 
-(define (do-nothing x) x)
+(define sum 0)
 
-;; 解答
-(define x (stream-map show (stream-enumerate-interval 0 10)))
-;;(define x (stream-map do-nothing (stream-enumerate-interval 0 10)))
+(define (accum x)
+  (set! sum (+ x sum))
+  sum)
 
-(stream-ref x 5)
-(display "---")
-(newline)
-(stream-ref x 7)
+(define seq (stream-map accum (stream-enumerate-interval 1 20)))
+(define y (stream-filter even? seq))
+(define z (stream-filter (lambda (x) (= (remainder x 5) 0))
+                         seq))
+
+(stream-ref y 7)
+
+(display-stream z)
+
+; 136
+
+; 10
+; 15
+; 45
+; 55
+; 105
+; 120
+; 190
+; 210done
+;
+; stream-cdr を呼ぶたびにその部分が再計算され、同じ要素を force するたびに accum が再実行されて sum がどんどん増える。
+; y の計算と z の計算で何度も seq の同じ位置をたどるため、印字される値も sum も上記とは一致しない。
