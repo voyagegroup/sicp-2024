@@ -116,7 +116,7 @@
   (define (itr s n)
     (cons-stream
      (* (/ 1 n) (stream-car s))
-     (itr (stream-cdr s) n)))
+     (itr (stream-cdr s) (+ n 1))))
   (itr st 1))
 
 ; 3.59-b
