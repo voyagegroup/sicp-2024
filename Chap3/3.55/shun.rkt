@@ -80,7 +80,11 @@
   (stream-map * s1 s2))
 
 ; 3.55
-(define partial-sums (cons-stream 0 (add-streams integers partial-sums)))
+(define (partial-sums s)
+  (cons-stream
+   (stream-car s)
+   (add-streams (stream-cdr s)
+                (partial-sums s))))
 
 (stream-ref partial-sums 5)
 ; 15
