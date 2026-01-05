@@ -209,12 +209,16 @@
   (cons-stream
    (list (stream-car s) (stream-car t) (stream-car u))
    (interleave
-   ; iを固定して、j <= k の組み合わせを混ぜる
     (stream-map
      (lambda (jk)
                   (list (stream-car s) (car jk) (cadr jk)))
-     (stream-cdr (pairs t u)))  ; (pairs t u)で j <= k の組み合わせを作る
-    (triples (stream-cdr s) (stream-cdr t) (stream-cdr u))))) ; 同時に進めるためi<=jも固定される
+     (stream-cdr (pairs t u)))  ; (pairs t u)で
+    (triples (stream-cdr s) (stream-cdr t) (stream-cdr u)))))
 
-(take-stream (triples integers integers integers) 20)
-; ((1 1 1) (1 1 2) (2 2 2) (1 2 2) (2 2 3) (1 1 3) (3 3 3) (1 2 3) (2 3 3) (1 1 4) (3 3 4) (1 3 3) (2 2 4) (1 1 5) (4 4 4) (1 2 4) (2 3 4) (1 1 6) (3 4 4) (1 3 4))
+(take-stream (triples integers integers integers) 10)
+; ((1 1 1) (1 1 2) (2 2 2) (1 2 2) (2 2 3) (1 1 3) (3 3 3) (1 2 3) (2 3 3) (1 1 4))
+
+(take-stream
+ (stream-filter
+ (lambda (x) (= (square (caddr x)) (+ (square (car x)) (square (cadr x))))) (triples integers integers integers)) 2)
+; ((3 4 5) (6 8 10))
