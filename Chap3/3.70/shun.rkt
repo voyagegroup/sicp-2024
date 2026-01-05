@@ -218,9 +218,12 @@
                  ((> w1 w2)
                   (cons-stream s2car (merge-weighted s1 (stream-cdr s2) weight)))
                  (else
+                  ; w1 == w2 の場合、両方の要素を含める
                   (cons-stream s1car
-                               (merge-weighted (stream-cdr s1)
-                                      (stream-cdr s2) weight))))))))
+                               (cons-stream s2car
+                                            (merge-weighted (stream-cdr s1)
+                                                            (stream-cdr s2)
+                                                            weight)))))))))
 
 (define (weighted-pairs s t weight)
   (cons-stream
