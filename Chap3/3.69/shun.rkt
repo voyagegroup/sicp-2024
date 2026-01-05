@@ -21,12 +21,10 @@
   (stream-for-each display-line s))
 
 (define (take-stream s n)
-  (define (stream-for proc s n cnt)
-    (if (or (stream-null? s) (= cnt n))
-      'done
-      (begin (proc (stream-car s))
-             (stream-for proc (stream-cdr s) n (+ cnt 1)))))
-  (stream-for display-line s n 0))
+  (if (or (zero? n) (stream-null? s))
+      '()
+      (cons (stream-car s)
+            (take-stream (stream-cdr s) (- n 1)))))
 
 (define (display-line x)
   (newline)
@@ -134,18 +132,93 @@
     (cons-stream 1 (scale-stream (mul-series (stream-cdr s) x) -1))) ; x = 1 - sr * x
   x)
 
-; 3.62
-; 約数は定数項を1にする必要がある
 (define (div-series s1 s2)
-  (let ((a0 (stream-car s2)))
-    (if (= a0 0)
-        (error "div-series: denominator has zero constant term")
-        (let* ((unit-den (scale-stream s2 (/ 1 a0)))     ; 先頭を 1 に正規化
-               (inv-den (scale-stream                    ; 1/s2 = (1/a0) * 1/unit-den
-                        (invert-unit-series unit-den)
-                        (/ 1 a0))))
-          (mul-series s1 inv-den)))))
+  (mul-series s1 (invert-unit-series s2)))
 
-; tan(x) = sin(x) / cos(x)
-(define tangent-series
-  (div-series sine-series cosine-series))
+(define (average n1 n2)
+  (/ (+ n1 n2) 2))
+
+(define (sqrt-improve guess x)
+  (average guess (/ x guess)))
+
+(define (sqrt-stream x)
+  (define guesses
+    (cons-stream 1.0
+                 (stream-map (lambda (guess)
+                               (sqrt-improve guess x))
+                             guesses)))
+  guesses)
+
+(define (stream-limit s tolelance)
+  (let ((first (stream-car s))
+        (second (stream-car (stream-cdr s))))
+    (if (<= (abs (- first second)) tolelance)
+      second
+      (stream-limit (stream-cdr s) tolelance)))
+  )
+
+
+(define (euler-transform s)
+  (let ((s0 (stream-ref s 0))           ; Sn-1
+        (s1 (stream-ref s 1))           ; Sn
+        (s2 (stream-ref s 2)))          ; Sn+1
+    (cons-stream (- s2 (/ (square (- s2 s1))
+                          (+ s0 (* -2 s1) s2)))
+                 (euler-transform (stream-cdr s)))))
+
+(define (make-tableau transform s)
+  (cons-stream s
+               (make-tableau transform
+                             (transform s))))
+
+(define (accelerated-sequence transform s)
+  (stream-map stream-car
+              (make-tableau transform s)))
+
+(define (partial-sums s)
+  (cons-stream
+   (stream-car s)
+   (add-streams (stream-cdr s)
+                (partial-sums s))))
+
+(define (in2-summands n)
+  (cons-stream (/ 1.0 n)
+               (stream-map - (in2-summands (+ n 1)))))
+
+(define in2-stream
+  (scale-stream (partial-sums (in2-summands 1)) 1))
+
+
+
+(define (interleave s1 s2)
+  (if (stream-null? s1)
+      s2
+      (cons-stream (stream-car s1)
+                   (interleave s2 (stream-cdr s1)))))
+
+(define (pairs s t)
+  (cons-stream
+   (list (stream-car s) (stream-car t))
+   (interleave
+    (stream-map (lambda (x) (list (stream-car s) x))
+                (stream-cdr t))
+    (pairs (stream-cdr s) (stream-cdr t)))))
+
+; 3.69
+(define (triples s t u)
+  (cons-stream
+   (list (stream-car s) (stream-car t) (stream-car u))
+   (interleave
+    (stream-map
+     (lambda (jk)
+                  (list (stream-car s) (car jk) (cadr jk)))
+     (stream-cdr (pairs t u)))  ; (pairs t u)で
+    (triples (stream-cdr s) (stream-cdr t) (stream-cdr u)))))
+
+(take-stream (triples integers integers integers) 10)
+; ((1 1 1) (1 1 2) (2 2 2) (1 2 2) (2 2 3) (1 1 3) (3 3 3) (1 2 3) (2 3 3) (1 1 4))
+
+(take-stream
+ (stream-filter
+ (lambda (x) (= (square (caddr x)) (+ (square (car x)) (square (cadr x))))) (triples integers integers integers)) 2)
+; ((3 4 5) (6 8 10))
