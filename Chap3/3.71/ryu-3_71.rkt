@@ -1,0 +1,198 @@
+#lang sicp
+; --- 3.5.1
+
+(define (stream-for-each proc s)
+  (if (stream-null? s)
+      'done
+      (begin (proc (stream-car s))
+             (stream-for-each proc (stream-cdr s)))))
+
+(define (display-stream s)
+  (stream-for-each display-line s))
+
+(define (display-line x)
+  (newline)
+  (display x))
+
+; (stream-car (cons-stream x y)) = x
+(define (stream-car stream) (car stream))
+; (stream-cdr (cons-stream x y)) = y
+(define (stream-cdr stream) (force (cdr stream)))
+
+(define (stream-enumerate-interval low high)
+  (if (> low high)
+      the-empty-stream
+      (cons-stream
+       low
+       (stream-enumerate-interval (+ low 1) high))))
+
+(define (stream-ref s n)
+  (if (= n 0)
+      (stream-car s)
+      (stream-ref (stream-cdr s) (- n 1))))
+
+(define (stream-filter pred stream)
+  (cond ((stream-null? stream) the-empty-stream)
+        ((pred (stream-car stream))
+         (cons-stream (stream-car stream)
+                      (stream-filter pred
+                                     (stream-cdr stream))))
+        (else (stream-filter pred (stream-cdr stream)))))
+
+; --- 3.50
+
+(define (stream-map proc . argstreams)
+  (if (stream-null? (car argstreams))
+      the-empty-stream
+      (cons-stream
+       (apply proc (map stream-car argstreams))
+       (apply stream-map
+              (cons proc (map stream-cdr argstreams))))))
+
+; --- 3.55
+
+(define (partial-sums s)
+  (cons-stream (stream-car s)
+               (add-streams (stream-cdr s) 
+                            (partial-sums s))))
+
+; --- 3.5.2
+
+(define (integers-starting-from n)
+  (cons-stream n (integers-starting-from (+ n 1))))
+
+
+(define integers (integers-starting-from 1))
+
+(define (add-streams s1 s2)
+  (stream-map + s1 s2))
+
+(define (scale-stream stream factor)
+  (stream-map (lambda (x) (* x factor)) stream))
+
+(define (display-stream-n s n)
+  (define (iter index)
+    (if (= index n)
+        'done
+        (begin
+          (display (stream-ref s index))
+          (display " ")
+          (iter (+ index 1)))))
+  (iter 0))
+
+; --- 3.64
+(define (stream-limit stream t)
+  (let ((car (stream-car stream))
+        (cdr (stream-car (stream-cdr stream))))
+    ; (display car)
+    ; (display cdr)
+
+    (if (< (abs (- car cdr)) t)
+        cdr ; 誤差よりも小さくなったので返す
+        (stream-limit (stream-cdr stream) t))))
+
+
+; --- 3.6.3
+; interleaveは二つのストリームから要素を交互にとるので, 第一のストリームが無限であっても, 第二のストリームのすべての要素は, いつかは混ぜ合されたストリームへ行く道を見つける.
+(define (interleave s1 s2)
+  (if (stream-null? s1)
+      s2
+      (cons-stream (stream-car s1)
+                   (interleave s2 (stream-cdr s1)))))
+
+
+(define (pairs s t)
+  (cons-stream
+   (list (stream-car s) (stream-car t))
+   (interleave
+    (stream-map (lambda (x) (list (stream-car s) x))
+                (stream-cdr t))
+    (pairs (stream-cdr s) (stream-cdr t)))))
+
+; --- 3.56
+
+(define (merge s1 s2)
+  (cond ((stream-null? s1) s2)
+        ((stream-null? s2) s1)
+        (else
+         (let ((s1car (stream-car s1))
+               (s2car (stream-car s2)))
+           (cond ((< s1car s2car)
+                  (cons-stream s1car (merge (stream-cdr s1) s2)))
+                 ((> s1car s2car)
+                  (cons-stream s2car (merge s1 (stream-cdr s2))))
+                 (else
+                  (cons-stream s1car
+                               (merge (stream-cdr s1)
+                                      (stream-cdr s2)))))))))
+
+
+; --- 3.70
+(define (merge-weighted s1 s2 weight)
+  (cond ((stream-null? s1) s2)
+        ((stream-null? s2) s1)
+        (else
+         (let ((s1car (stream-car s1))
+               (s2car (stream-car s2)))
+           (let ((w1 (weight s1car)) ; 追加
+                 (w2 (weight s2car)))
+             (cond ((< w1 w2)
+                    (cons-stream s1car 
+                                 (merge-weighted (stream-cdr s1) s2 weight)))
+                   ((> w1 w2)
+                    (cons-stream s2car 
+                                 (merge-weighted s1 (stream-cdr s2) weight)))
+                   (else  ; 同じ重みの場合、両方含める。 e.g. (1, 3), (2, 2)
+                    (cons-stream s1car
+                                 (cons-stream s2car
+                                              (merge-weighted (stream-cdr s1)
+                                                              (stream-cdr s2)
+                                                              weight))))))))))
+(define (weighted-pairs s t weight)
+  (cons-stream
+   (list (stream-car s) (stream-car t))
+   (merge-weighted
+    (stream-map (lambda (x) (list (stream-car s) x))
+                (stream-cdr t))
+    (weighted-pairs (stream-cdr s) (stream-cdr t) weight)
+    weight)))
+; --- 3.71
+
+; Ramanujan（ラマヌジャン）数
+; 1^3 + 12^3 = 1729
+; 9^3 + 10^3 = 1729
+
+
+(define (cube-sum-weight pair)
+  (let ((i (car pair))
+        (j (cadr pair)))
+    (+ (* i i i) (* j j j))))
+
+(define cube-sum-pairs
+  (weighted-pairs integers integers cube-sum-weight))
+(display-stream-n cube-sum-pairs 20)
+; (1 1) (1 2) (2 2) (1 3) (2 3) (3 3) (1 4) (2 4) (3 4) (1 5) (4 4) (2 5) (3 5) (4 5) (1 6) (2 6) (3 6) (5 5) (4 6) (5 6) done
+
+
+(define (find-ramanujan stream)
+  (let ((first-pair (stream-car stream))
+        (second-pair (stream-car (stream-cdr stream))))
+    (let ((first-weight (cube-sum-weight first-pair))
+          (second-weight (cube-sum-weight second-pair)))
+      (if (= first-weight second-weight)
+          (cons-stream 
+           (list first-weight first-pair second-pair)
+           (find-ramanujan (stream-cdr stream)))
+          (find-ramanujan (stream-cdr stream))))))
+
+(define ramanujan-numbers
+  (find-ramanujan cube-sum-pairs))
+
+(display-stream-n ramanujan-numbers 6)
+; (1729 (1 12) (9 10)) (4104 (2 16) (9 15)) (13832 (2 24) (18 20)) (20683 (10 27) (19 24)) (32832 (4 32) (18 30)) (39312 (2 34) (15 33)) done
+
+
+
+
+
+
