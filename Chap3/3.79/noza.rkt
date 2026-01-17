@@ -29,6 +29,12 @@
 (define (scale-stream stream factor)
   (stream-map (lambda (x) (* x factor)) stream))
 
+(define (stream-take s k)
+  (if (or (zero? k) (stream-null? s))
+      '()
+      (cons (stream-car s)
+            (stream-take (stream-cdr s) (- k 1)))))
+
 ;; 積分器: integrand を遅延引数として受け取る版
 (define (integral delayed-integrand initial-value dt)
   (cons-stream initial-value
@@ -55,4 +61,4 @@
   (solve-2nd (lambda (dy y) (+ (* a dy) (* b y))) y0 dy0 dt))
 
 ;; 例: y'' = -y, y(0)=0, y'(0)=1 (sin)
-(stream-ref (solve-2nd-linear 0 -1 0 1 0.001) 1000)
+(stream-take (solve-2nd-linear 0 -1 0 1 0.001) 10)

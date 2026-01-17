@@ -29,6 +29,7 @@
 (define (scale-stream stream factor)
   (stream-map (lambda (x) (* x factor)) stream))
 
+;; デバッグ用: 先頭から k 個をリスト化
 (define (stream-take s k)
   (if (or (zero? k) (stream-null? s))
       '()
@@ -46,16 +47,26 @@
                                   initial-value)
                                dt)))))
 
-;; 同次二階線形微分方程式: d2y/dt2 = a*dy/dt + b*y
-(define (solve-2nd a b y0 dy0 dt)
-  (let ((y 'unassigned)
-        (dy 'unassigned)
-        (ddy 'unassigned))
-    (set! y (integral (delay dy) y0 dt))
-    (set! dy (integral (delay ddy) dy0 dt))
-    (set! ddy (add-streams (scale-stream dy a)
-                           (scale-stream y b)))
-    y))
+;; 直列RLC回路モデル
+;; R: 抵抗値, L: インダクタ, C: キャパシタ, dt: サンプリング間隔
+(define (RLC R L C dt)
+  (lambda (vC0 iL0)
+    (let ((vC 'unassigned)
+          (iL 'unassigned)
+          (dvC 'unassigned)
+          (diL 'unassigned))
+      (set! vC (integral (delay dvC) vC0 dt))
+      (set! iL (integral (delay diL) iL0 dt))
+      (set! dvC (scale-stream iL (/ 1.0 C)))
+      (set! diL (add-streams (scale-stream iL (- (/ R L)))
+                             (scale-stream vC (- (/ 1.0 L)))))
+      (cons vC iL))))
 
-;; 例: y'' = -y, y(0)=0, y'(0)=1
-(stream-take (solve-2nd 0 -1 0 1 0.001) 10)
+;; 確認用: R=1, C=0.2, L=1, dt=0.1, iL0=0, vC0=10
+(define rlc1 (RLC 1 1 0.2 0.1))
+(define rlc-streams (rlc1 10 0))
+(define vC (car rlc-streams))
+(define iL (cdr rlc-streams))
+
+(stream-take vC 10)
+(stream-take iL 10)
