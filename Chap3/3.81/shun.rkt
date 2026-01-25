@@ -16,11 +16,13 @@
       (begin (proc (stream-car s))
              (stream-for-each proc (stream-cdr s)))))
 
-(define (take-stream s n)
-  (if (or (zero? n) (stream-null? s))
-      '()
-      (cons (stream-car s)
-            (take-stream (stream-cdr s) (- n 1)))))
+(define (stream-take s n)
+  (cond ((or (= n 0) (stream-null? s)) '())
+        ((= n 1) (list (stream-car s)))
+        (else
+         (cons (stream-car s)
+               (stream-take (stream-cdr s) (- n 1))))))
+
 
 (define (stream-car stream) (car stream))
 
@@ -147,13 +149,36 @@
 (define random-init 7)
 
 (define (rand-update x)
-  (let ((a 1664525)
-        (b 1013904223)
-        (m 4294967296))
-    (modulo (+ (* a x) b) m)))
+  (remainder (+ (* 1234 x) 567) 89))
 
-(define rand
-  (let ((x random-init))
-    (lambda (query)
-      (cond ((eq? query 'generate) (set! x (rand-update x)) x)
-            ((eq? query 'reset (lambda (new-value) (set! x new-value) x)))))))
+(define (rand requests last-value)
+  (let* ((request (stream-car requests))
+         (new-value
+          (cond ((eq? request 'generate)
+                 (rand-update last-value))
+                ((and (pair? request) (eq? (car request) 'reset))
+                 (cadr request))
+                (else
+                 (error "Unknown request" request)))))
+    (cons-stream new-value
+                 (rand (stream-cdr requests) new-value))))
+
+(define (list->stream xs)
+  (if (null? xs)
+      the-empty-stream
+      (cons-stream (car xs) (list->stream (cdr xs)))))
+
+(define requests
+  (list->stream (list 'generate
+                      'generate
+                      (list 'reset 42)
+                      'generate
+                      'generate
+                      'generate
+                      (list 'reset 5)
+                      'generate)))
+
+(define randoms (rand requests random-init))
+
+(stream-take randoms 8)
+; (38 22 42 63 78 76 5 62)
