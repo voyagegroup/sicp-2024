@@ -15,15 +15,15 @@
     ; if 式は、述語が真なら帰結式を評価し、そうでなければ代替式を評価するよう、要素式の特別な処理を必要とする
     ((if? exp) (eval-if exp env))
     ; lambda 式は lambda 式が指定したパラメタと本体を、評価の環境とともに詰め合わせ、作用可能な手続きへと変換する必要がある
-    ((lamgda? exp)
+    ((lambda? exp)
      (make-procedure (lambda-parameters exp)
                      (lambda-body)
                      env))
     ; begin 式は、要素式の並びを現れる順に評価する必要がある
     ((begin? exp)
-     (evale-sequence (begin-actions exp) env))
+     (eval-sequence (begin-actions exp) env))
     ; cond による場合分けは if 式の入れ子に変換してから評価する
-    ((cond? exp) (eval (conf->if exp) env))
+    ((cond? exp) (eval (cond->if exp) env))
     ((application? exp)
      (apply (eval (operator exp) env)
             (list-of-values (operands exp) env)))
@@ -231,3 +231,79 @@
                      (sequence->exp (cond-actions first))
                      (expand-clauses rest))))))
             
+
+; 条件式では明白に false であるオブジェクト以外は true
+(define (true? x)
+  (not (eq? x false)))
+
+(define (false? x)
+  (eq? x false))
+
+
+; 合成手続きはパラメタ、手続き本体および環境から、構成子 make-procedure を使って構成する
+(define (make-procedure parameters body env)
+  (list 'procedure parameters body env))
+
+(define (compound-procedure? p)
+  (tagged-list? p 'procedure))
+
+(define (procedure-parameters p) (cadr p))
+
+(define (procedure-body p) (caddrp))
+
+(define (procedure-environment p) (caddr p))
+
+
+; 環境に対する操作
+; 環境をフレームのリストとして表現する
+(define (enclosing-environment env) (cdr env))
+
+(define (first-frame env) (car env))
+
+(define the-empty-environment '())
+; 環境の各フレームはそのリストの対: そのフレームで束縛されている変数のリストと、対応づけられている値のリスト
+(define (make-frame variables values)
+  (cons variables values))
+
+(define (frame-variables frame) (car frame))
+
+(define (frame-values frame) (cdr frame))
+
+(define (add-binding-to-frame! var val frame)
+  (set-car! frame (cons (var (car frame))))
+  (set-cdr! frame (cons val (cdr frame))))
+; 変数を値に対応づける新しいフレームで環境を拡張するには、変数のリストと値のリストからなるフレームを作り、これを環境に接続する。変数の個数が値の個数に一致しなければエラーとする。
+(define (extend-environment vars vals base-env)
+  (if (= length vars) (length vals)
+      (cons (make-frame vars vals) base-env)
+      (if (< (length vars) (length vals))
+          (error "Too many arguments supplied" vars vals)
+          (error "Too few arguments supplied" vars vals))))
+; 環境の中で変数を探すには、最初のフレームで変数のリストを走査する。探している変数が見つかれば、値のリストの対応する要素を。
+; 現在のフレームに変数が見つからなければ外側の環境を探し、これを続ける。
+; 空の環境に達したら「未束縛変数」エラーを出す。
+(define (lookup-variable-value var env)
+  (define (env-loop env)
+    (define (scan vars vals)
+      (cond ((null? vars)
+             (env-loop (enclosing-environment env)))
+            ((eq? var (car vars))
+             (car vals))
+            (else (scan (cdr vars) (cdr vals)))))
+    (if (eq? env the-empty-environment)
+        (error "Unbound variable" var)
+        (let ((frame (first-frame env)))
+          (scan (frame-variables frame)
+                (frame-values frame)))))
+  (env-loop env))
+; 指定された環境の中で、変数を新しい値に設定するには、lookup-variable-value のように変数を操作し、それが見つかれば対応する値を更新する
+(define (set-variable-value! var val env)
+  (define (env-loop env)
+    (define (scan vars vals)
+      (cond ((null? vars)
+             (add-binding-to-frame! var val frame))
+            ((eq? var (car vars))
+             (set-car! vals val))
+            (else (scan (cdr vars) (cdr vals)))))
+    (scan (frame-variables frame)
+          (frame-values frame))))
