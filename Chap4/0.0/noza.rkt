@@ -1,9 +1,11 @@
 #lang sicp
 
+(define apply-in-underlying-scheme apply)
+
 (define (eval exp env)
   (cond
     ; 自己評価式（例: 数値）に対してはそれ自身を返す
-    ((self-evaluationg? exp) exp)
+    ((self-evaluating? exp) exp)
     ; 値を得るため環境から変数を探す
     ((variable? exp) (lookup-variable-value exp env))
     ; クォートされた式を返す
@@ -16,16 +18,16 @@
     ((if? exp) (eval-if exp env))
     ; lambda 式は lambda 式が指定したパラメタと本体を、評価の環境とともに詰め合わせ、作用可能な手続きへと変換する必要がある
     ((lambda? exp)
-     (make-procedure (lambda-parameters exp)
-                     (lambda-body)
-                     env))
+         (make-procedure (lambda-parameters exp)
+                         (lambda-body exp)
+                         env))
     ; begin 式は、要素式の並びを現れる順に評価する必要がある
     ((begin? exp)
      (eval-sequence (begin-actions exp) env))
     ; cond による場合分けは if 式の入れ子に変換してから評価する
     ((cond? exp) (eval (cond->if exp) env))
     ((application? exp)
-     (apply (eval (operator exp) env)
+     (my-apply (eval (operator exp) env)
             (list-of-values (operands exp) env)))
     ; 対応できない場合
     (else
@@ -36,17 +38,17 @@
 ; applyは手続きを二つに場合分けする
 ; 基本演算を作用させるのに, apply-primitive-procedureを呼び出す
 ; 合成手続きは手続きの本体を構成する式を順に評価して作用させる.
-; 合成手続きの本体の評価における環境は, 手続きによって持ち込まれた基本の環境を, 手続きのパラメタと手続きを作用させようとする引数を束縛するフレームへ拡張して構成する. 
-(define (apply procedure arguments)
+; 合成手続きの本体の評価における環境は, 手続きによって持ち込まれた基本の環境を, 手続きのパラメタと手続きを作用させようとする引数を束縛するフレームへ拡張して構成する.
+(define (my-apply procedure arguments)
   (cond ((primitive-procedure? procedure)
          (apply-primitive-procedure procedure arguments))
         ((compound-procedure? procedure)
          (eval-sequence
-          (procedure-body procedure)
-          (extend-environment
-           (procedure-parameters procedure)
-           arguments
-           (procedure-environment procedure))))
+           (procedure-body procedure)
+           (extend-environment
+             (procedure-parameters procedure)
+             arguments
+             (procedure-environment procedure))))
         (else
          (error
           "Unknown procedure type -- APPLY" procedure))))
@@ -94,14 +96,14 @@
 
 
 ; 自己評価式は数と文字列だけである
-(define (self-evaluationg? exp)
+(define (self-evaluating? exp)
   (cond ((number? exp) true)
         ((string? exp) true)
         (else false)))
 
 
 ; 変数は記号で表現する
-(define (variable? exp) (symble? exp))
+(define (variable? exp) (symbol? exp))
 
 
 ; クォート式は (quote <text-of-quotation>) の形である。
@@ -125,7 +127,7 @@
 (define (assignment-value exp) (caddr exp))
 
 
-; 定義は (define <var> <value>) または (define (<var> <parameter1> ... <parameterN>O <body>) の形である
+; 定義は (define <var> <value>) または (define (<var> <parameter1> ... <parameterN> <body>) の形である
 (define (definition? exp)
   (tagged-list? exp 'define))
 
@@ -134,10 +136,10 @@
       (cadr exp)
       (caadr exp)))
 
-(define (difinition-value exp)
+(define (definition-value exp)
   (if (symbol? (cadr exp))
-      (cadr exp)
-      (make-lambda (cdadr exp) ; 仮パラメタ
+      (caddr exp)
+      (make-lambda (cdadr exp)   ; 仮パラメタ
                    (cddr exp)))) ; 本体
 
 
@@ -146,7 +148,7 @@
 
 (define (lambda-parameters exp) (cadr exp))
 
-(define (lambda-body exp) (addr exp))
+(define (lambda-body exp) (cddr exp))
 
 (define (make-lambda parameters body)
   (cons 'lambda (cons parameters body)))
@@ -174,9 +176,11 @@
 
 (define (begin-actions exp) (cdr exp))
 
-(define (last-exp? seq) (null? cdr seq))
+(define (last-exp? seq) (null? (cdr seq)))
 
 (define (first-exp seq) (car seq))
+
+(define (rest-exps seq) (cdr seq))
 ; (cond->ifが使う) 構成子 sequence->exp も。
 (define (sequence->exp seq)
   (cond ((null? seq) seq)
@@ -194,7 +198,7 @@
 
 (define (operands exp) (cdr exp))
 
-(define (no-operands ops) (null? ops))
+(define (no-operands? ops) (null? ops))
 
 (define (first-operand ops) (car ops))
 
@@ -209,7 +213,7 @@
 (define (cond-clauses exp) (cdr exp))
 
 (define (cond-else-clause? clause)
-  (eq? (cond-predicate clase) 'else))
+  (eq? (cond-predicate clause) 'else))
 
 (define (cond-predicate clause) (car clause))
 
@@ -249,9 +253,10 @@
 
 (define (procedure-parameters p) (cadr p))
 
-(define (procedure-body p) (caddrp))
+(define (procedure-body p) (caddr p))
 
-(define (procedure-environment p) (caddr p))
+
+(define (procedure-environment p) (cadddr p))
 
 
 ; 環境に対する操作
@@ -270,11 +275,12 @@
 (define (frame-values frame) (cdr frame))
 
 (define (add-binding-to-frame! var val frame)
-  (set-car! frame (cons (var (car frame))))
+  (set-car! frame (cons var (car frame)))
   (set-cdr! frame (cons val (cdr frame))))
+
 ; 変数を値に対応づける新しいフレームで環境を拡張するには、変数のリストと値のリストからなるフレームを作り、これを環境に接続する。変数の個数が値の個数に一致しなければエラーとする。
 (define (extend-environment vars vals base-env)
-  (if (= length vars) (length vals)
+  (if (= (length vars) (length vals))
       (cons (make-frame vars vals) base-env)
       (if (< (length vars) (length vals))
           (error "Too many arguments supplied" vars vals)
@@ -301,9 +307,97 @@
   (define (env-loop env)
     (define (scan vars vals)
       (cond ((null? vars)
+             (env-loop (enclosing-environment env)))
+            ((eq? var (car vars))
+             (set-car! vals val))
+            (else (scan (cdr vars) (cdr vals)))))
+    (if (eq? env the-empty-environment)
+        (error "Unbound variable -- SET!" var)
+        (let ((frame (first-frame env)))
+          (scan (frame-variables frame)
+                (frame-values frame)))))
+  (env-loop env))
+
+(define (define-variable! var val env)
+  (let ((frame (first-frame env)))
+    (define (scan vars vals)
+      (cond ((null? vars)
              (add-binding-to-frame! var val frame))
             ((eq? var (car vars))
              (set-car! vals val))
             (else (scan (cdr vars) (cdr vals)))))
     (scan (frame-variables frame)
           (frame-values frame))))
+
+; setup-environment は基本手続きの名前と実装手続きをリストからとる
+(define primitive-procedures
+  (list (list 'car car)
+        (list 'cdr cdr)
+        (list 'cons cons)
+        (list 'null? null?)
+        ; (基本手続きが続く)
+        ))
+
+(define (primitive-procedure-objects)
+  (map (lambda (proc) (list 'primitive (cadr proc)))
+       primitive-procedures))
+
+(define (primitive-procedure-names)
+  (map car
+       primitive-procedures))
+
+; 大域環境を設定する。
+; 評価する式で変数として使えるように、記号 true と false の束縛もある。
+(define (setup-environment)
+  (let ((initial-env
+         (extend-environment (primitive-procedure-names)
+                             (primitive-procedure-objects)
+                             the-empty-environment)))
+    (define-variable! 'true true initial-env)
+    (define-variable! 'false false initial-env)
+    initial-env))
+
+(define the-global-environment (setup-environment))
+
+
+; apply が手続き primitive-procedure? と apply-primitive-procedure を使ってオブジェクトを識別でき、作用できれば、基本手続きオブジェクトをどう表現するかは。
+; 記号 primitive で始まり基本手続きを実指示ている基盤 Lisp での手続きを含むリストとして基本手続きを表現するよう選んだ。
+(define (primitive-procedure? proc)
+  (tagged-list? proc 'primitive))
+
+(define (primitive-implementation proc) (cadr proc))
+
+; 基本手続きを作用させるには、基盤 Lisp 使い、実装手続きを引数に作用させるだけである
+(define (apply-primitive-procedure proc args)
+  (apply-in-underlying-scheme
+   (primitive-implementation proc) args))
+
+; 基盤 Lisp システムの読み込み-評価-印字ループをモデル化する駆動ループを用意する
+(define input-prompt ";;; M-Eval input:")
+(define output-prompt ";;; M-Eval value:")
+
+(define (driver-loop)
+  (prompt-for-input input-prompt)
+  (let ((input (read)))
+    (let ((output (eval input the-global-environment)))
+      (announce-output output-prompt)
+      (user-print output)))
+  (driver-loop))
+
+(define (prompt-for-input string)
+  (newline) (newline) (display string) (newline))
+
+(define (announce-output string)
+  (newline) (display string) (newline))
+
+(define (user-print object)
+  (if (compound-procedure? object)
+      (display (list 'compound-procedure
+                     (procedure-parameters object)
+                     (procedure-body object)
+                     ""))
+      (display object)))
+
+
+;; デバッグ
+(driver-loop)
