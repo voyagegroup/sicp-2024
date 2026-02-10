@@ -17,7 +17,6 @@
          (eval-sequence (begin-actions exp) env))
         ((cond? exp) (eval (cond->if exp) env))
         ((application? exp)
-         (display 'run)
          (my-apply (eval (operator exp) env)
                 (list-of-values (operands exp) env)))
         (else
@@ -39,14 +38,39 @@
           "Unknown procedure type -- APPLY" procedure))))
 
 ; list-of-valuesは引数として組合せの被演算子をとり, 各被演算子を評価し, 対応する値のリストを返す
+
+; ------ 問4.1 ----------
+#| もともと
 (define (list-of-values exps env)
-(newline)
-  (display exps)
-  (newline)
   (if (no-operands? exps)
       '()
       (cons (eval (first-operand exps) env)
             (list-of-values (rest-operands exps) env))))
+|#
+
+#| 右から左: 
+(define (list-of-values exps env)
+  (if (no-operands? exps)
+      '()
+      (let ((rest-vals (list-of-values (rest-operands exps) env)))
+        (cons (eval (first-operand exps) env)
+              rest-vals))))
+
+;;; M-Eval value:
+1
+|#
+
+; 左から右
+(define (list-of-values exps env)
+  (if (no-operands? exps)
+      '()
+      (let ((first-val (eval (first-operand exps) env)))
+        (cons first-val
+              (list-of-values (rest-operands exps) env)))))
+;;; M-Eval value:
+; 0
+
+; ------ 問4.1 ----------
 
 ; eval-ifはif式の述語部を与えられた環境で評価する. 結果が真なら, eval-ifは帰結部を評価し, そうでなければ代替部を評価する
 (define (eval-if exp env)
@@ -318,6 +342,7 @@
         (list 'cdr cdr)
         (list 'cons cons)
         (list 'null? null?)
+        (list '+ +)
         ; 基本手続きが続く
         ))
 (define (primitive-procedure-names)
