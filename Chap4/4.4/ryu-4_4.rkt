@@ -1,27 +1,76 @@
 #lang sicp
+
+; get/put(3.3.3より)
+(define (make-table)
+  (let ((local-table (list '*table*)))
+    (define (lookup key-1 key-2)
+      (let ((subtable (assoc key-1 (cdr local-table))))
+        (if subtable
+            (let ((record (assoc key-2 (cdr subtable))))
+              (if record
+                  (cdr record)
+                  false))
+            false)))
+    (define (insert! key-1 key-2 value)
+      (let ((subtable (assoc key-1 (cdr local-table))))
+        (if subtable
+            (let ((record (assoc key-2 (cdr subtable))))
+              (if record
+                  (set-cdr! record value)
+                  (set-cdr! subtable
+                            (cons (cons key-2 value)
+                                  (cdr subtable)))))
+            (set-cdr! local-table
+                      (cons (list key-1
+                                  (cons key-2 value))
+                            (cdr local-table)))))
+      'ok)    
+    (define (dispatch m)
+      (cond ((eq? m 'lookup-proc) lookup)
+            ((eq? m 'insert-proc!) insert!)
+            (else (error "Unknown operation -- TABLE" m))))
+    dispatch))
+  
+
+(define operation-table (make-table))
+(define get (operation-table 'lookup-proc))
+(define put (operation-table 'insert-proc!))
+
+
 ; --- 4.1.1
 
 ; evalは引数として式と環境をとる. 式を分類して評価を振り分ける. evalは評価すべき式の構文の型の場合分けの構造とする. 
+; --- 4.3
 (define (eval exp env)
-  (cond ((self-evaluating? exp) exp)
-        ((variable? exp) (lookup-variable-value exp env))
-        ((quoted? exp) (text-of-quotation exp))
-        ((assignment? exp) (eval-assignment exp env))
-        ((definition? exp) (eval-definition exp env))
-        ((if? exp) (eval-if exp env))
-        ((lambda? exp)
-         (make-procedure (lambda-parameters exp)
-                         (lambda-body exp)
-                         env))
-        ((begin? exp)
-         (eval-sequence (begin-actions exp) env))
-        ((cond? exp) (eval (cond->if exp) env))
-        ((application? exp)
-         (display 'run)
-         (my-apply (eval (operator exp) env)
-                (list-of-values (operands exp) env)))
-        (else
-         (error "Unknown expression type -- EVAL" exp))))
+  (cond
+    ((self-evaluating? exp) exp)
+    ((variable? exp) (lookup-variable-value exp env))
+
+
+    ((get 'eval (car exp))
+     ((get 'eval (car exp)) exp env))
+
+    #|
+    ((quoted? exp) (text-of-quotation exp))
+    ((assignment? exp) (eval-assignment exp env))
+    ((definition? exp) (eval-definition exp env))
+    ((if? exp) (eval-if exp env))
+    ((lambda? exp)
+     (make-procedure (lambda-parameters exp)
+                     (lambda-body exp)
+                     env))
+    ((begin? exp) 
+     (eval-sequence (begin-actions exp) env))
+
+    ((cond? exp) (eval (cond->if exp) env))
+        |#
+    ((application? exp)
+     (my-apply (eval (operator exp) env)
+               (list-of-values (operands exp) env)))
+
+    (else
+     (error "Unknown expression type -- EVAL" exp))))
+; ---
 
 ; applyは二つの引数, 手続きと, 手続きを作用させる引数のリストをとる. applyは手続きを二つに場合分けする: 基本演算を作用させるのに, apply-primitive-procedureを呼び出す
 (define (my-apply procedure arguments)
@@ -40,9 +89,6 @@
 
 ; list-of-valuesは引数として組合せの被演算子をとり, 各被演算子を評価し, 対応する値のリストを返す
 (define (list-of-values exps env)
-(newline)
-  (display exps)
-  (newline)
   (if (no-operands? exps)
       '()
       (cons (eval (first-operand exps) env)
@@ -381,6 +427,58 @@
 
 
 
+; --- 4.3
+(put 'eval 'quote
+     (lambda (exp env) (text-of-quotation exp)))
+(put 'eval 'set! eval-assignment)
+(put 'eval 'if eval-if)
+(put 'eval 'define eval-definition)
+
+(put 'eval 'lambda
+     (lambda (exp env)
+       (make-procedure (lambda-parameters exp)
+                       (lambda-body exp)
+                       env)))
+
+(put 'eval 'begin
+     (lambda (exp env)
+       (eval-sequence (begin-actions exp) env)))
+
+(put 'eval 'cond
+     (lambda (exp env)
+       (eval (cond->if exp) env)))
+; ---
+
+; --- 4.4: orとandの実装
+(define (last? list)
+  (null? (cdr list)))
+
+; and: 式を左から右へ評価する. ある式が偽に評価されたら偽を返す; 残りの式は評価しない. すべての式が真に評価されたら, 最後の式の値を返す. 式が一つもなければ真を返す.
+(define (eval-and exp env)
+  (define (iter operands)
+    (cond ((null? operands) true) ; 1つもない
+          ((last? operands) (eval (car operands) env)) ; 最後なのでそのまま返す
+          (else
+           (let ((result (eval (car operands) env)))
+             (if (false? result)
+                 false ; 短絡評価
+                 (iter (cdr operands))))))) ; trueの場合再帰
+  (iter (cdr exp)))
+(put 'eval 'and eval-and)
+
+
+; or: 式を左から右へ評価する. ある式が真の値に評価されたらその値を返す; 残りの式は評価しない. すべての式が偽に評価されるか, 式が一つもなければ偽を返す.
+(define (eval-or exp env)
+  (define (iter operands)
+    (cond ((null? operands) false) ; 1つもない
+          (else
+           (let ((result (eval (car operands) env)))
+             (if (true? result)
+                 true ; 短絡評価
+                 (iter (cdr operands))))))) ; andとは違い、すべてがfalseの場合はnull?になるので、last?はいらない
+  (iter (cdr exp)))
+(put 'eval 'or eval-or)
+; ---
 
 (driver-loop)
 
