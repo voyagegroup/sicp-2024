@@ -262,6 +262,10 @@
 (define (make-let bindings body)
   (cons 'let (cons bindings body)))
 
+; let* は束縛を左から順に評価し、後続の束縛が前の束縛を参照できる。
+; そのため let* は各束縛を1つずつ持つ入れ子の let に変換できる。
+; 例: (let* ((x 1) (y (+ x 1))) body)
+;   => (let ((x 1)) (let ((y (+ x 1))) body))
 (define (let*->nested-lets exp)
   (define (nest bindings body)
     (if (null? bindings)
@@ -271,7 +275,7 @@
   (if (null? (let*-bindings exp))
       (sequence->exp (let*-body exp))
       (car (nest (let*-bindings exp) (let*-body exp)))))
-            
+
 
 ; 条件式では明白に false であるオブジェクト以外は true
 (define (true? x)
@@ -444,7 +448,3 @@
                 (y (cons x '())))
            (cons 'b y))
         the-global-environment))
-
-
-
-
