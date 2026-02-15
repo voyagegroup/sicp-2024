@@ -107,7 +107,7 @@
 (define (variable? exp) (symbol? exp))
 
 
-; 新しい構文:
+; 新しい構文: (AI に提案してもらった)
 ; quote   -> (q <text>)
 ; set!    -> (set <var> <value>)
 ; define  -> (def <var> <value>) / (def (<var> <params...>) <body...>)
@@ -244,7 +244,7 @@
             (make-if (cond-predicate first)
                      (sequence->exp (cond-actions first))
                      (expand-clauses rest))))))
-            
+
 
 ; 条件式では明白に false であるオブジェクト以外は true
 (define (true? x)
@@ -422,7 +422,3 @@
                     (call rev (call cdr xs) (call cons (call car xs) acc)))))
            (call rev lst (q ())))
         the-global-environment))
-
-
-
-
