@@ -262,6 +262,17 @@
 (define (let-values exp)
   (map binding-value (let-bindings exp)))
 
+; 変換方針: 名前つき let を (define <name> (lambda (<vars>) <body>)) と
+; その場での初回呼び出しに分解し、(lambda () <define> <call>) で包む。
+; これにより局所定義と同じスコープで再帰呼び出し可能になる。
+; 例:
+;   (let loop ((i 0) (acc 0))
+;     (if (= i 10) acc (loop (+ i 1) (+ acc i))))
+; =>
+;   ((lambda ()
+;      (define (loop i acc)
+;        (if (= i 10) acc (loop (+ i 1) (+ acc i))))
+;      (loop 0 0)))
 (define (named-let->combination exp)
   (let* ((name (let-name exp))
          (vars (let-variables exp))
@@ -278,7 +289,7 @@
       (cons (make-lambda (let-variables exp)
                          (let-body exp))
             (let-values exp))))
-            
+
 
 ; 条件式では明白に false であるオブジェクト以外は true
 (define (true? x)
@@ -446,14 +457,12 @@
 
 
 ; 問題4.8 確認用
-(define (test-4.8)
-  (eval '(let loop ((lst (cons 'a (cons 'b '())))
-                    (acc '()))
-           (if (null? lst)
-               acc
-               (loop (cdr lst) (cons (car lst) acc))))
-        the-global-environment))
+(define (test-4.8 n)
+  (let fib-iter ((a 1)
+                 (b 0)
+                 (count n))
+    (if (= count 0)
+        b
+        (fib-iter (+ a b) a (- count 1)))))
 
-
-
-
+(test-4.8 10)
