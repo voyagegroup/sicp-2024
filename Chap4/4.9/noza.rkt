@@ -247,6 +247,19 @@
 (define (while-test exp) (cadr exp))
 (define (while-body exp) (cddr exp))
 
+; 展開方針: while を無名のローカル再帰手続きに変換し、
+; テストが真なら本体を実行して自分自身を再呼び出し、偽なら false を返す。
+; 例:
+;   (while (> x 0)
+;     (set! x (- x 1))
+;     (display x))
+; =>
+;   ((lambda ()
+;      (define (while-loop)
+;        (if (> x 0)
+;            (begin (set! x (- x 1)) (display x) (while-loop))
+;            false))
+;      (while-loop)))
 (define (while->combination exp)
   (let* ((loop-name 'while-loop)
          (test (while-test exp))
@@ -446,7 +459,6 @@
              (set! x (cdr x)))
            acc)
         the-global-environment))
-
 
 
 
