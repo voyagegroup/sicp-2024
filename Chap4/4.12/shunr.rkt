@@ -409,7 +409,7 @@
           (lambda (vals) (set-car! vals val))
           (lambda () (add-binding-to-frame! var val frame)))))
 
-; 4.12
+; 抽象関数
 (define (scan-frame var frame found-proc not-found-proc)
   (define (scan vars vals)
     (cond ((null? vars)
