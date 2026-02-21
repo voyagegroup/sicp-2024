@@ -234,7 +234,7 @@
             (make-if (cond-predicate first)
                      (sequence->exp (cond-actions first))
                      (expand-clauses rest))))))
-            
+
 
 ; 条件式では明白に false であるオブジェクト以外は true
 (define (true? x)
@@ -266,17 +266,34 @@
 (define (first-frame env) (car env))
 
 (define the-empty-environment '())
-; 環境の各フレームはそのリストの対: そのフレームで束縛されている変数のリストと、対応づけられている値のリスト
+; 解答: 環境の各フレームは束縛 (変数 . 値) のリストで表現する
+(define (make-binding var val)
+  (cons var val))
+
+; 解答: 変数を取得する
+(define (binding-variable binding) (car binding))
+
+; 解答: 値を取得する
+(define (binding-value binding) (cdr binding))
+
+; 解答: 変数と値の数だけ cons して frame を作成する
 (define (make-frame variables values)
-  (cons variables values))
+  (if (null? variables)
+      '()
+      (cons (make-binding (car variables) (car values))
+            (make-frame (cdr variables) (cdr values)))))
 
-(define (frame-variables frame) (car frame))
+; 解答: map を利用して frame の bindings のリストの variable を取得したリストを取得
+(define (frame-variables frame)
+  (map binding-variable frame))
 
-(define (frame-values frame) (cdr frame))
+; 解答: map を利用して frame の bindings のリストの values を取得したリストを取得
+(define (frame-values frame)
+  (map binding-value frame))
 
+; 解説: 追加は frame に (var . val) を追加する
 (define (add-binding-to-frame! var val frame)
-  (set-car! frame (cons var (car frame)))
-  (set-cdr! frame (cons val (cdr frame))))
+  (cons (make-binding var val) frame))
 
 ; 変数を値に対応づける新しいフレームで環境を拡張するには、変数のリストと値のリストからなるフレームを作り、これを環境に接続する。変数の個数が値の個数に一致しなければエラーとする。
 (define (extend-environment vars vals base-env)
@@ -288,46 +305,46 @@
 ; 環境の中で変数を探すには、最初のフレームで変数のリストを走査する。探している変数が見つかれば、値のリストの対応する要素を。
 ; 現在のフレームに変数が見つからなければ外側の環境を探し、これを続ける。
 ; 空の環境に達したら「未束縛変数」エラーを出す。
+; 解答: 引数の var が一致したら (var . val) の val を返す
 (define (lookup-variable-value var env)
   (define (env-loop env)
-    (define (scan vars vals)
-      (cond ((null? vars)
+    (define (scan bindings)
+      (cond ((null? bindings)
              (env-loop (enclosing-environment env)))
-            ((eq? var (car vars))
-             (car vals))
-            (else (scan (cdr vars) (cdr vals)))))
+            ((eq? var (binding-variable (car bindings)))
+             (binding-value (car bindings)))
+            (else (scan (cdr bindings)))))
     (if (eq? env the-empty-environment)
         (error "Unbound variable" var)
-        (let ((frame (first-frame env)))
-          (scan (frame-variables frame)
-                (frame-values frame)))))
+        (scan (first-frame env))))
   (env-loop env))
 ; 指定された環境の中で、変数を新しい値に設定するには、lookup-variable-value のように変数を操作し、それが見つかれば対応する値を更新する
+; 解答: lookup-variable-value と同様に変数の走査を行なって、値を更新
 (define (set-variable-value! var val env)
   (define (env-loop env)
-    (define (scan vars vals)
-      (cond ((null? vars)
+    (define (scan bindings)
+      (cond ((null? bindings)
              (env-loop (enclosing-environment env)))
-            ((eq? var (car vars))
-             (set-car! vals val))
-            (else (scan (cdr vars) (cdr vals)))))
+            ((eq? var (binding-variable (car bindings)))
+             (set-cdr! (car bindings) val))
+            (else (scan (cdr bindings)))))
     (if (eq? env the-empty-environment)
         (error "Unbound variable -- SET!" var)
-        (let ((frame (first-frame env)))
-          (scan (frame-variables frame)
-                (frame-values frame)))))
+        (scan (first-frame env))))
   (env-loop env))
 
+; 解答: lookup-varial-value と同様に走査して、値を設定する
 (define (define-variable! var val env)
-  (let ((frame (first-frame env)))
-    (define (scan vars vals)
-      (cond ((null? vars)
-             (add-binding-to-frame! var val frame))
-            ((eq? var (car vars))
-             (set-car! vals val))
-            (else (scan (cdr vars) (cdr vals)))))
-    (scan (frame-variables frame)
-          (frame-values frame))))
+  (if (eq? env the-empty-environment)
+      (error "Empty environment -- DEFINE" var)
+      (let ((frame (first-frame env)))
+        (define (scan bindings)
+          (cond ((null? bindings)
+                 (set-car! env (add-binding-to-frame! var val frame)))
+                ((eq? var (binding-variable (car bindings)))
+                 (set-cdr! (car bindings) val))
+                (else (scan (cdr bindings)))))
+        (scan frame))))
 
 ; setup-environment は基本手続きの名前と実装手続きをリストからとる
 (define primitive-procedures
@@ -398,6 +415,13 @@
                      ""))
       (display object)))
 
+; 動作確認例 (driver-loop で入力)
+; (define x 10)                              ; => ok
+; x                                          ; => 10
+; (set! x 20)                                ; => ok
+; x                                          ; => 20
+; ((lambda (x) (begin (set! x 99) x)) 1)     ; => 99
+; x                                          ; => 20
 
 ;; デバッグ
 (driver-loop)
