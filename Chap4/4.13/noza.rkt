@@ -14,6 +14,7 @@
     ; 束縛を修正・作成して環境を修正
     ((assignment? exp) (eval-assignment exp env))
     ((definition? exp) (eval-definition exp env))
+    ((unbind? exp) (eval-unbind exp env))
     ; if 式は、述語が真なら帰結式を評価し、そうでなければ代替式を評価するよう、要素式の特別な処理を必要とする
     ((if? exp) (eval-if exp env))
     ; lambda 式は lambda 式が指定したパラメタと本体を、評価の環境とともに詰め合わせ、作用可能な手続きへと変換する必要がある
@@ -92,6 +93,16 @@
   (define-variable! (definition-variable exp)
                     (eval (definition-value exp) env)
                     env)
+  'ok)
+
+; unbind! は (unbind! <var>) の形で、現在フレームから束縛を除去する
+(define (unbind? exp)
+  (tagged-list? exp 'unbind!))
+
+(define (unbind-variable exp) (cadr exp))
+
+(define (eval-unbind exp env)
+  (unbind-variable! (unbind-variable exp) env)
   'ok)
 
 
@@ -329,6 +340,29 @@
     (scan (frame-variables frame)
           (frame-values frame))))
 
+; 問題 4.13 では、unbind! の対象を「最初のフレーム」に限定する。
+; define が最初のフレームに束縛を作るため、対称性があり予期しやすい仕様になる。
+(define (unbind-variable! var env)
+  (if (eq? env the-empty-environment)
+      (error "Unbound variable -- UNBIND!" var)
+      (let ((frame (first-frame env)))
+        (define (scan vars vals prev-vars prev-vals)
+          (cond ((null? vars)
+                 (error "Unbound variable -- UNBIND!" var))
+                ((eq? var (car vars))
+                 (if (null? prev-vars)
+                     (begin
+                       (set-car! frame (cdr vars))
+                       (set-cdr! frame (cdr vals)))
+                     (begin
+                       (set-cdr! prev-vars (cdr vars))
+                       (set-cdr! prev-vals (cdr vals)))))
+                (else (scan (cdr vars) (cdr vals) vars vals))))
+        (scan (frame-variables frame)
+              (frame-values frame)
+              '()
+              '()))))
+
 ; setup-environment は基本手続きの名前と実装手続きをリストからとる
 (define primitive-procedures
   (list (list 'car car)
@@ -398,6 +432,13 @@
                      ""))
       (display object)))
 
+; 動作確認例 (driver-loop で入力)
+; (define x 10)                              ; => ok
+; (unbind! x)                                ; => ok
+; x                                          ; => Unbound variable エラー
+; (define z 100)                             ; => ok
+; ((lambda (z) (begin (unbind! z) z)) 5)     ; => 100
+; 上の最後は、最初のフレームの z だけ削除され、外側の z が見えることを確認する
 
 ;; デバッグ
 (driver-loop)
