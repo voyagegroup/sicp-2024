@@ -234,7 +234,7 @@
             (make-if (cond-predicate first)
                      (sequence->exp (cond-actions first))
                      (expand-clauses rest))))))
-            
+
 
 ; 条件式では明白に false であるオブジェクト以外は true
 (define (true? x)
@@ -335,6 +335,7 @@
         (list 'cdr cdr)
         (list 'cons cons)
         (list 'null? null?)
+        (list 'map map)
         ; (基本手続きが続く)
         ))
 
@@ -398,6 +399,26 @@
                      ""))
       (display object)))
 
+; 問題 4.14
+; Eva の map は超循環評価器内で定義されるため、map の内部で手続きを適用する時も
+; 評価器自身の my-apply が使われる。したがって合成手続きにも正しく適用できる。
+; 一方、Louis が組み込んだ map は基盤 Scheme の primitive なので、
+; map 内部での手続き適用は基盤 Scheme の apply 規則に従う。
+; ここで渡される「超循環評価器の合成手続き」は基盤 Scheme の手続きオブジェクトではないため失敗する。
+
+; 動作確認例 (driver-loop で入力)
+; Eva 側:
+; (define (map p xs)
+;   (if (null? xs)
+;       '()
+;       (cons (p (car xs))
+;             (map p (cdr xs)))))
+; (map (lambda (x) (cons x '())) '(a b))     ; => ((a) (b))
+;
+; Louis 側:
+; primitive-procedures に (list 'map map) を追加して再起動後に
+; (map (lambda (x) (cons x '())) '(a b))
+; を評価すると失敗する。
 
 ;; デバッグ
 (driver-loop)
