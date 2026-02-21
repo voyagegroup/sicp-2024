@@ -234,7 +234,7 @@
             (make-if (cond-predicate first)
                      (sequence->exp (cond-actions first))
                      (expand-clauses rest))))))
-            
+
 
 ; 条件式では明白に false であるオブジェクト以外は true
 (define (true? x)
@@ -285,49 +285,78 @@
       (if (< (length vars) (length vals))
           (error "Too many arguments supplied" vars vals)
           (error "Too few arguments supplied" vars vals))))
-; 環境の中で変数を探すには、最初のフレームで変数のリストを走査する。探している変数が見つかれば、値のリストの対応する要素を。
-; 現在のフレームに変数が見つからなければ外側の環境を探し、これを続ける。
-; 空の環境に達したら「未束縛変数」エラーを出す。
-(define (lookup-variable-value var env)
+
+; 解答: 変数探索の共通パターンを抽象化する
+; var が見つかった時や見つからなかった時の処理がそれぞれで異なるので、
+; 処理を変えることができるように、関数を引数に取ることができるようにする。
+; - on-found: var が見つかった時の処理
+; - on-not-found: var が見つからなかった時の処理
+; - next-env-of: 次の環境の取得方法
+(define (scan-environment var env on-found on-not-found next-env-of)
   (define (env-loop env)
     (define (scan vars vals)
       (cond ((null? vars)
-             (env-loop (enclosing-environment env)))
+             (let ((next-env (next-env-of env)))
+               (if next-env
+                   (env-loop next-env)
+                   (on-not-found env))))
             ((eq? var (car vars))
-             (car vals))
+             (on-found vars vals env))
             (else (scan (cdr vars) (cdr vals)))))
     (if (eq? env the-empty-environment)
-        (error "Unbound variable" var)
-        (let ((frame (first-frame env)))
-          (scan (frame-variables frame)
-                (frame-values frame)))))
-  (env-loop env))
-; 指定された環境の中で、変数を新しい値に設定するには、lookup-variable-value のように変数を操作し、それが見つかれば対応する値を更新する
-(define (set-variable-value! var val env)
-  (define (env-loop env)
-    (define (scan vars vals)
-      (cond ((null? vars)
-             (env-loop (enclosing-environment env)))
-            ((eq? var (car vars))
-             (set-car! vals val))
-            (else (scan (cdr vars) (cdr vals)))))
-    (if (eq? env the-empty-environment)
-        (error "Unbound variable -- SET!" var)
+        (on-not-found env)
         (let ((frame (first-frame env)))
           (scan (frame-variables frame)
                 (frame-values frame)))))
   (env-loop env))
 
+; 環境の中で変数を探すには、最初のフレームで変数のリストを走査する。探している変数が見つかれば、値のリストの対応する要素を。
+; 現在のフレームに変数が見つからなければ外側の環境を探し、これを続ける。
+; 空の環境に達したら「未束縛変数」エラーを出す。
+; 解答
+; - on-found: var に対応する val を返す
+; - on-not-found: エラーを返す
+; - next-env-of: enclosing-environment を利用して次の環境を取得する
+(define (lookup-variable-value var env)
+  (scan-environment
+   var
+   env
+   (lambda (_vars vals _env) (car vals))
+   (lambda (_env) (error "Unbound variable" var))
+   (lambda (current-env)
+     (if (eq? (enclosing-environment current-env) the-empty-environment)
+         #f
+         (enclosing-environment current-env)))))
+; 指定された環境の中で、変数を新しい値に設定するには、lookup-variable-value のように変数を操作し、それが見つかれば対応する値を更新する
+; 解答
+; - on-found: val を set! で変更する
+; - on-not-found: エラーを返す
+; - next-env-of: enclosing-environment を利用して次の環境を取得する
+(define (set-variable-value! var val env)
+  (scan-environment
+   var
+   env
+   (lambda (_vars vals _env) (set-car! vals val))
+   (lambda (_env) (error "Unbound variable -- SET!" var))
+   (lambda (current-env)
+     (if (eq? (enclosing-environment current-env) the-empty-environment)
+         #f
+         (enclosing-environment current-env)))))
+
+; 解答
+; - on-found: val を set! で変更する
+; - on-not-found: frame に var . val を定義する
+; - next-env-of: 対象が現在の環境なので #f を返す
 (define (define-variable! var val env)
-  (let ((frame (first-frame env)))
-    (define (scan vars vals)
-      (cond ((null? vars)
-             (add-binding-to-frame! var val frame))
-            ((eq? var (car vars))
-             (set-car! vals val))
-            (else (scan (cdr vars) (cdr vals)))))
-    (scan (frame-variables frame)
-          (frame-values frame))))
+  (scan-environment
+   var
+   env
+   (lambda (_vars vals _env) (set-car! vals val))
+   (lambda (_env)
+     (if (eq? env the-empty-environment)
+         (error "Empty environment -- DEFINE" var)
+         (add-binding-to-frame! var val (first-frame env))))
+   (lambda (_current-env) #f)))
 
 ; setup-environment は基本手続きの名前と実装手続きをリストからとる
 (define primitive-procedures
@@ -398,6 +427,12 @@
                      ""))
       (display object)))
 
+; 動作確認例 (driver-loop で入力)
+; (define x 1)                               ; => ok
+; ((lambda (x) (begin (set! x 5) x)) 2)      ; => 5
+; x                                          ; => 1
+; (define x 3)                               ; => ok
+; x                                          ; => 3
 
 ;; デバッグ
 (driver-loop)
