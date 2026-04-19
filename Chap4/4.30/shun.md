@@ -18,7 +18,10 @@ done
 ```
 
 Cyは遅延評価においてはその値が必要な時にのみ評価されると理解しており、副作用のようなその返り値を使用しない処理についてはスキップされると懸念している。
-しかし、displayについては合成手続きではなく基本手続きであるため、サンクになることなく実行される。
+それに対してBenは結果として返す値でなくとも評価は行われることを示すためにfor-eachの例を出した。
+for-each内部のbeginが評価されるとき、(proc (car items))はevalされるので、procの適用は行われる。
+procである`(lambda (x) (newline) (display x))`は合成手続き`(procedure (x) ((newline) (display x)) <env>)`であり、手続の本体`(newline) (display x)`はeval-sequenceによって評価される。
+このふたつはapplyにおいてprimitiveとして実行され、各要素は正しく表示が行われる。
 
 ```scheme
 (define (my-apply procedure arguments env)
