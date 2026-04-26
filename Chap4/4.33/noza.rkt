@@ -503,10 +503,7 @@
 
 ; setup-environment は基本手続きの名前と実装手続きをリストからとる
 (define primitive-procedures
-  (list (list 'car car)
-        (list 'cdr cdr)
-        (list 'cons cons)
-        (list 'null? null?)
+  (list (list 'null? null?)
         (list 'eq? eq?)
         (list '+ +)
         (list '- -)
@@ -536,6 +533,11 @@
     initial-env))
 
 (define the-global-environment (setup-environment))
+
+; 問題 4.33: cons/car/cdr を手続き表現で定義
+(eval '(define (cons x y) (lambda (m) (m x y))) the-global-environment)
+(eval '(define (car z) (z (lambda (p q) p))) the-global-environment)
+(eval '(define (cdr z) (z (lambda (p q) q))) the-global-environment)
 
 
 ; apply が手続き primitive-procedure? と apply-primitive-procedure を使ってオブジェクトを識別でき、作用できれば、基本手続きオブジェクトをどう表現するかは。
