@@ -484,4 +484,6 @@
 ;; Start evaluator
 (driver-loop)
 
-
+; ここでpermanent-set!の代りにset!を使ったら, どのような値が出力されるだろうか.
+; (a b 1)
+; (a c 1)
