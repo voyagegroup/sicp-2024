@@ -590,4 +590,42 @@
              (lambda ()
                (aproc env succeed fail))))))
 
+; 問題 4.53
+; permanent-set! と if-fail を組み合わせた式の評価結果を確認する。
+;
+; 動作の説明:
+;   1. prime-sum-pair が素数になる組を一つ見つけるたびに
+;      permanent-set! で pairs に cons する（バックトラックしても消えない）
+;   2. (amb) で強制的に失敗させ、次の組を探させる
+;   3. すべての組を使い果たすと if-fail が失敗を捕まえ pairs を返す
+;
+; 期待値: ((8 35) (3 110) (3 20))
+;   発見順は (3 20) → (3 110) → (8 35) で cons するので逆順になる
+
+(define (eval! exp)
+  (ambeval exp
+           the-global-environment
+           (lambda (val next) val)
+           (lambda () (error "failed"))))
+
+(eval! '(define (require p) (if (not p) (amb) 'ok)))
+
+(eval! '(define (an-element-of items)
+          (require (not (null? items)))
+          (amb (car items) (an-element-of (cdr items)))))
+
+(eval! '(define (prime? n)
+          (define (smallest-divisor n) (find-divisor n 2))
+          (define (find-divisor n test-divisor)
+            (cond ((> (* test-divisor test-divisor) n) n)
+                  ((= (remainder n test-divisor) 0) test-divisor)
+                  (else (find-divisor n (+ test-divisor 1)))))
+          (= n (smallest-divisor n))))
+
+(eval! '(define (prime-sum-pair list1 list2)
+          (let ((a (an-element-of list1))
+                (b (an-element-of list2)))
+            (require (prime? (+ a b)))
+            (list a b))))
+
 (driver-loop)
