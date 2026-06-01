@@ -615,24 +615,3 @@
                (aproc env succeed fail))))))
 
 (driver-loop)
-
-; テスト
-; (display "=== if-fail のテスト ===") (newline)
-
-; (display "期待値: all-odd") (newline)
-; (ambeval '(if-fail (let ((x (an-element-of '(1 3 5))))
-;                      (require (even? x))
-;                      x)
-;                    'all-odd)
-;          the-global-environment
-;          (lambda (val next) (display val) (newline))
-;          (lambda () (display "failed") (newline)))
-
-; (display "期待値: 8") (newline)
-; (ambeval '(if-fail (let ((x (an-element-of '(1 3 5 8))))
-;                      (require (even? x))
-;                      x)
-;                    'all-odd)
-;          the-global-environment
-;          (lambda (val next) (display val) (newline))
-;          (lambda () (display "failed") (newline)))
