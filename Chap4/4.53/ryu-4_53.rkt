@@ -678,6 +678,7 @@
         (list 'eq? eq?)
         (list 'list list)
         (list 'even? even?)
+        (list 'remainder remainder) 
         ; 基本手続きが続く
         ))
 (define (primitive-procedure-names)
@@ -1180,8 +1181,28 @@ body((+ x y))
              (lambda () ; 失敗は継続
                (aproc env succeed fail))))))
 
+
+; 4.53
+
 #|
-検証コード
+実行
+
+(define (divides? a b)
+  (= (remainder b a) 0))
+
+(define (square x) (* x x))
+
+(define (find-divisor n test-divisor)
+  (cond ((> (square test-divisor) n) n)
+	((divides? test-divisor n) test-divisor)
+	(else (find-divisor n (+ test-divisor 1)))))
+
+(define (smallest-divisor n)
+  (find-divisor n 2))
+
+(define (prime? n)
+  (= n (smallest-divisor n)))
+
 (define (require p)
   (if (not p) (amb)))
 
@@ -1189,39 +1210,33 @@ body((+ x y))
   (require (not (null? items)))
   (amb (car items) (an-element-of (cdr items))))
 
-(if-fail (let ((x (an-element-of '(1 3 5))))
-           (require (even? x))
-           x)
-         'all-odd)
+(define (prime-sum-pair list1 list2)
+  (let ((a (an-element-of list1))
+        (b (an-element-of list2)))
+    (require (prime? (+ a b)))
+    (list a b)))
 
-(if-fail (let ((x (an-element-of '(1 3 5 8))))
-           (require (even? x))
-           x)
-         'all-odd)
+
+(let ((pairs '()))
+  (if-fail (let ((p (prime-sum-pair '(1 3 5 8) '(20 35 110))))
+             (permanent-set! pairs (cons p pairs))
+             (amb))
+           pairs))
+
 |#
 
-
 #|
-実行
-;;; Amb-Eval input:
-(if-fail (let ((x (an-element-of '(1 3 5))))
-           (require (even? x))
-           x)
-         'all-odd)
-
 ;;; Starting a new problem 
 ;;; Amb-Eval value:
-all-odd
+((8 35) (3 110) (3 20))
 
-;;; Amb-Eval input:
-(if-fail (let ((x (an-element-of '(1 3 5 8))))
-           (require (even? x))
-           x)
-         'all-odd)
-
-;;; Starting a new problem 
-;;; Amb-Eval value:
-8
+try-ageinをしないで、1度で全部でてくる。
+1. prime-sum-pairが(3 20)をみつける
+2. permanent-set!でpairsに保存
+3. ちょくごの(amb)が失敗
+4. 失敗継続によって、prime-sum-pairの次の候補を探す
+5. 繰り返す
+y. 候補が尽きると、if-failの代替部のpairsが評価
 |#
 
 

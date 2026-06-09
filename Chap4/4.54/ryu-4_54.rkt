@@ -97,6 +97,7 @@
         ((ramb? exp) (analyze-ramb exp)) ; 4.50
         ((permanent-assignment? exp) (analyze-permanent-assignment exp)) ; 4.51
         ((if-fail? exp) (analyze-if-fail exp)) ; 5.52
+        ((require? exp) (analyze-require exp)) ; 5.54
         ((application? exp) (analyze-application exp))
         (else
          (error "Unknown expression type -- ANALYZE" exp))))
@@ -678,6 +679,7 @@
         (list 'eq? eq?)
         (list 'list list)
         (list 'even? even?)
+        (list 'remainder remainder) 
         ; 基本手続きが続く
         ))
 (define (primitive-procedure-names)
@@ -1180,49 +1182,20 @@ body((+ x y))
              (lambda () ; 失敗は継続
                (aproc env succeed fail))))))
 
-#|
-検証コード
-(define (require p)
-  (if (not p) (amb)))
 
-(define (an-element-of items)
-  (require (not (null? items)))
-  (amb (car items) (an-element-of (cdr items))))
+; 4.54
+(define (require? exp) (tagged-list? exp 'require))
 
-(if-fail (let ((x (an-element-of '(1 3 5))))
-           (require (even? x))
-           x)
-         'all-odd)
-
-(if-fail (let ((x (an-element-of '(1 3 5 8))))
-           (require (even? x))
-           x)
-         'all-odd)
-|#
-
-
-#|
-実行
-;;; Amb-Eval input:
-(if-fail (let ((x (an-element-of '(1 3 5))))
-           (require (even? x))
-           x)
-         'all-odd)
-
-;;; Starting a new problem 
-;;; Amb-Eval value:
-all-odd
-
-;;; Amb-Eval input:
-(if-fail (let ((x (an-element-of '(1 3 5 8))))
-           (require (even? x))
-           x)
-         'all-odd)
-
-;;; Starting a new problem 
-;;; Amb-Eval value:
-8
-|#
+(define (require-predicate exp) (cadr exp))
+(define (analyze-require exp)
+  (let ((pproc (analyze (require-predicate exp))))
+    (lambda (env succeed fail)
+      (pproc env
+             (lambda (pred-value fail2)
+               (if (not pred-value) ; (??)
+                   (fail2) ; (??)
+                   (succeed 'ok fail2)))
+             fail))))
 
 
 (driver-loop)
