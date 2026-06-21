@@ -66,9 +66,9 @@
       (error "Bad tagged datum -- CONTENTS" datum)))
 
 
-(define (apply-rules pattern frame)
+(define (apply-rules pattern frame history)
   (stream-flatmap (lambda (rule)
-                    (apply-a-rule rule pattern frame))
+                    (apply-a-rule rule pattern frame history))
                   (fetch-rules pattern frame)))
 
 ; 駆動ループと具現化
@@ -110,52 +110,81 @@
 
 ; 評価器
 (define (qeval query frame-stream)
+  (qeval-with-history query frame-stream '()))
+
+(define (qeval-with-history query frame-stream history)
   (let ((qproc (get (type query) 'qeval)))
     (if qproc
-        (qproc (contents query) frame-stream)
-        (simple-query query frame-stream))))
+        (qproc (contents query) frame-stream history)
+        (simple-query query frame-stream history))))
 
 ;; 単純質問
-(define (simple-query query-pattern frame-stream)
+(define (simple-query query-pattern frame-stream history)
   (stream-flatmap
    (lambda (frame)
-     (stream-append-delayed
-      (find-assertions query-pattern frame)
-      (delay (apply-rules query-pattern frame))))
+     (let ((normalized-query
+            (normalize-query
+             (instantiate query-pattern
+               frame
+               (lambda (v f) v)))))
+       (if (query-already-in-history? normalized-query history)
+           the-empty-stream
+           (let ((new-history (cons normalized-query history)))
+             (stream-append-delayed
+              (find-assertions query-pattern frame)
+              (delay (apply-rules query-pattern frame new-history)))))))
    frame-stream))
+
+(define (normalize-query exp)
+  (cond ((var? exp) '(? _))
+        ((pair? exp)
+         (cons (normalize-query (car exp))
+               (normalize-query (cdr exp))))
+        (else exp)))
+
+(define (query-already-in-history? query history)
+  (cond ((null? history) false)
+        ((equal? query (car history)) true)
+        (else (query-already-in-history? query (cdr history)))))
 
 ;; 合成質問
 ;;; and
-(define (conjoin conjuncts frame-stream)
+(define (conjoin conjuncts frame-stream history)
   (if (empty-conjunction? conjuncts)
       frame-stream
       (conjoin (rest-conjuncts conjuncts)
-               (qeval (first-conjunct conjuncts)
-                      frame-stream))))
+               (qeval-with-history (first-conjunct conjuncts)
+                                   frame-stream
+                                   history)
+               history)))
 (define install-conjoin (put 'and 'qeval conjoin))
 
 ;;; or
-(define (disjoin disjuncts frame-stream)
+(define (disjoin disjuncts frame-stream history)
   (if (empty-disjunction? disjuncts)
       the-empty-stream
       (interleave-delayed
-       (qeval (first-disjunct disjuncts) frame-stream)
+       (qeval-with-history (first-disjunct disjuncts)
+                           frame-stream
+                           history)
        (delay (disjoin (rest-disjuncts disjuncts)
-                       frame-stream)))))
+                       frame-stream
+                       history)))))
 (define install-disjoin (put 'or 'qeval disjoin))
 
 ;;; フィルタ
-(define (negate operands frame-stream)
+(define (negate operands frame-stream history)
   (stream-flatmap
    (lambda (frame)
-     (if (stream-null? (qeval (negated-query operands)
-                              (singleton-stream frame)))
+     (if (stream-null? (qeval-with-history (negated-query operands)
+                                           (singleton-stream frame)
+                                           history))
          (singleton-stream frame)
          the-empty-stream))
    frame-stream))
 (define install-negate (put 'not 'qeval negate))
 
-(define (lisp-value call frame-stream)
+(define (lisp-value call frame-stream history)
   (stream-flatmap
    (lambda (frame)
      (if (execute
@@ -189,7 +218,7 @@
         ((eq? name 'null?) null?)
         (else (error "Unknown predicate -- LISP-VALUE" name))))
 
-(define (always-true ignore frame-stream) frame-stream)
+(define (always-true ignore frame-stream history) frame-stream)
 (define install-always-true (put 'always-true 'qeval always-true))
 
 ; パターンマッチにより表明を見つける
@@ -223,7 +252,7 @@
         (pattern-match (binding-value binding) dat frame)
         (extend var dat frame))))
 
-(define (apply-a-rule rule query-pattern query-frame)
+(define (apply-a-rule rule query-pattern query-frame history)
   (let ((clean-rule (rename-variables-in rule)))
     (let ((unify-result
            (unify-match query-pattern
@@ -231,8 +260,9 @@
                         query-frame)))
       (if (eq? unify-result 'failed)
           the-empty-stream
-          (qeval (rule-body clean-rule)
-                 (singleton-stream unify-result))))))
+          (qeval-with-history (rule-body clean-rule)
+                              (singleton-stream unify-result)
+                              history)))))
 
 (define (rename-variables-in rule)
   (let ((rule-application-id (new-rule-application-id)))
