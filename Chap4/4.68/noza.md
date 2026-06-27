@@ -5,19 +5,18 @@
 空リストを逆順にした結果は空リストである。
 
 ```scheme
-(assert! (rule (reverse () ())))
+(rule (reverse () ()))
 ```
 
 空でないリストについては、リストを `(?first . ?rest)` に分ける。
 `?rest` を逆順にしたものを `?reversed-rest` とし、その末尾に `?first` だけからなるリストを追加すれば、全体を逆順にしたリストになる。
 
 ```scheme
-(assert!
- (rule (reverse (?first . ?rest) ?reversed)
-       (and (reverse ?rest ?reversed-rest)
-            (append-to-form ?reversed-rest
-                            (?first)
-                            ?reversed))))
+(rule (reverse (?first . ?rest) ?reversed)
+      (and (reverse ?rest ?reversed-rest)
+           (append-to-form ?reversed-rest
+                           (?first)
+                           ?reversed)))
 ```
 
 例えば、
