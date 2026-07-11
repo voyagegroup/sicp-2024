@@ -68,8 +68,8 @@
 
 (define (apply-rules pattern frame)
   (stream-flatmap (lambda (rule)
-                    (apply-a-rule rule pattern frame))
-                  (fetch-rules pattern frame)))
+                    (apply-a-rule rule pattern frame)) ; 1つの規則からは 0 - n のフレームストリームになる
+                  (fetch-rules pattern frame))) ; rule の中から当てはまるものを取得する
 
 ; 駆動ループと具現化
 (define input-prompt ";;; Query input: ")
@@ -110,18 +110,18 @@
 
 ; 評価器
 (define (qeval query frame-stream)
-  (let ((qproc (get (type query) 'qeval)))
+  (let ((qproc (get (type query) 'qeval))) ; 'qeval (特殊形式) から取得する  
     (if qproc
-        (qproc (contents query) frame-stream)
+        (qproc (contents query) frame-stream) ; 特殊形式の場合
         (simple-query query frame-stream))))
 
 ;; 単純質問
 (define (simple-query query-pattern frame-stream)
   (stream-flatmap
    (lambda (frame)
-     (stream-append-delayed
-      (find-assertions query-pattern frame)
-      (delay (apply-rules query-pattern frame))))
+     (stream-append-delayed ; find-assertions の完了後、apply-rules を実行するようにする
+      (find-assertions query-pattern frame) ; DB の事実を探す
+      (delay (apply-rules query-pattern frame)))) ; ルールから推論する
    frame-stream))
 
 ;; 合成質問
@@ -130,7 +130,7 @@
   (if (empty-conjunction? conjuncts)
       frame-stream
       (conjoin (rest-conjuncts conjuncts)
-               (qeval (first-conjunct conjuncts)
+               (qeval (first-conjunct conjuncts) ; 拡張した frame-stream を conjoin に rest conjects とともに渡す
                       frame-stream))))
 (define install-conjoin (put 'and 'qeval conjoin))
 
@@ -141,7 +141,7 @@
       (interleave-delayed
        (qeval (first-disjunct disjuncts) frame-stream)
        (delay (disjoin (rest-disjuncts disjuncts)
-                       frame-stream)))))
+                       frame-stream))))) ; 並行して frame を拡張するため、それぞれ frame-stream を渡す
 (define install-disjoin (put 'or 'qeval disjoin))
 
 ;;; フィルタ
@@ -158,12 +158,12 @@
 (define (lisp-value call frame-stream)
   (stream-flatmap
    (lambda (frame)
-     (if (execute
-          (instantiate
-              call
+     (if (execute ; 式を実行する
+          (instantiate ; 式を実行できる形にする
+            call
             frame
             (lambda (v f)
-              (error "Unknown pat var -- LISP-VALUE" v))))
+              (error "Unknown pat var -- LISP-VALUE" v)))) ; 未束縛の場合はエラーにする
          (singleton-stream frame)
          the-empty-stream))
    frame-stream))
@@ -196,20 +196,20 @@
 (define (find-assertions pattern frame)
   (stream-flatmap (lambda (datum)
                     (check-an-assertion datum pattern frame))
-                  (fetch-assertions pattern frame)))
+                  (fetch-assertions pattern frame))) ; pttern の先頭を見て assertion を絞り込む
 
 (define (check-an-assertion assertion query-pat query-frame)
   (let ((match-result
          (pattern-match query-pat assertion query-frame)))
     (if (eq? match-result 'failed)
         the-empty-stream
-        (singleton-stream match-result))))
+        (singleton-stream match-result)))) ; frame 1つが返されるため singleton-stream に包む
 
-(define (pattern-match pat dat frame)
+(define (pattern-match pat dat frame) ; 拡張した frame または failed を返す
   (cond ((eq? frame 'failed) 'failed)
         ((equal? pat dat) frame)
-        ((var? pat) (extend-if-consistent pat dat frame))
-        ((and (pair? pat) (pair? dat))
+        ((var? pat) (extend-if-consistent pat dat frame)) ; pattern 側が変数の場合 dat に pattern が束縛できるかチェック
+        ((and (pair? pat) (pair? dat)) ; リストなら要素を取り出して比較
          (pattern-match (cdr pat)
                         (cdr dat)
                         (pattern-match (car pat)
@@ -223,18 +223,18 @@
         (pattern-match (binding-value binding) dat frame)
         (extend var dat frame))))
 
-(define (apply-a-rule rule query-pattern query-frame)
-  (let ((clean-rule (rename-variables-in rule)))
+(define (apply-a-rule rule query-pattern query-frame) ; 1つの規則を質問に適用する
+  (let ((clean-rule (rename-variables-in rule))) ; 変数名を一時的にリネームする。再帰的に探した場合に外側と内側の変数を区別するため
     (let ((unify-result
            (unify-match query-pattern
                         (conclusion clean-rule)
                         query-frame)))
       (if (eq? unify-result 'failed)
           the-empty-stream
-          (qeval (rule-body clean-rule)
+          (qeval (rule-body clean-rule) ; body がない場合は always-true
                  (singleton-stream unify-result))))))
 
-(define (rename-variables-in rule)
+(define (rename-variables-in rule) ; 規則全体を木としてたどって変数を割り当てる
   (let ((rule-application-id (new-rule-application-id)))
     (define (tree-walk exp)
       (cond ((var? exp)
@@ -245,7 +245,7 @@
             (else exp)))
     (tree-walk rule)))
 
-(define (unify-match p1 p2 frame)
+(define (unify-match p1 p2 frame) ; *** 以外は pttern-match と同じ
   (cond ((eq? frame 'failed) 'failed)
         ((equal? p1 p2) frame)
         ((var? p1) (extend-if-possible p1 p2 frame))
@@ -258,7 +258,7 @@
                                    frame)))
         (else 'failed)))
 
-(define (extend-if-possible var val frame)
+(define (extend-if-possible var val frame) ; *** 以外は extend-if-consistent と同様
   (let ((binding (binding-in-frame var frame)))
     (cond (binding
            (unify-match
@@ -273,7 +273,7 @@
            'failed)
           (else (extend var val frame)))))
 
-(define (depends-on? exp var frame)
+(define (depends-on? exp var frame) ; 束縛を追加した時に、変数が自分自身を直接的もしくは間接的に参照するようにならないかをチェックする
   (define (tree-walk e)
     (cond ((var? e)
            (if (equal? var e)
