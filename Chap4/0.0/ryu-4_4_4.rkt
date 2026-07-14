@@ -953,10 +953,13 @@ body((+ x y))
 ; 4.4.4 単純質問
 
 (define (simple-query query-pattern frame-stream)
+  ; (display 'query-pattern:)
+  ; (display query-pattern)(newline)
   (stream-flatmap
    (lambda (frame)
      (stream-append-delayed
       (find-assertions query-pattern frame)
+      ; (apply-rules query-pattern frame))) ; 4.71
       (delay (apply-rules query-pattern frame))))
    frame-stream))
 
@@ -973,8 +976,8 @@ body((+ x y))
       the-empty-stream
       (interleave-delayed
        (qeval (first-disjunct disjuncts) frame-stream)
-       (delay (disjoin (rest-disjuncts disjuncts)
-                       frame-stream)))))
+       ; (disjoin (rest-disjuncts disjuncts) frame-stream)))) ; 4.71
+       (delay (disjoin (rest-disjuncts disjuncts) frame-stream)))))
 
 ; 4.4.4 フィルタ
 (define (negate operands frame-stream)
