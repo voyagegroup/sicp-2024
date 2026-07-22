@@ -1,5 +1,20 @@
 #lang sicp
 
+(#%require (only racket/base module+))
+
+(#%provide add-rule-or-assertion!
+           contract-question-mark
+           instantiate
+           put
+           qeval
+           query-driver-loop
+           query-syntax-process
+           singleton-stream
+           stream-car
+           stream-cdr
+           stream-flatmap
+           stream-map)
+
 (define (prompt-for-input string)
   (newline) (newline) (display string) (newline))
 
@@ -500,4 +515,5 @@
 (define (extend variable value frame)
   (cons (make-binding variable value) frame))
 
-(query-driver-loop)
+(module+ main
+  (query-driver-loop))
