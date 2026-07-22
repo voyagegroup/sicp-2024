@@ -1,0 +1,11 @@
+#lang sicp
+
+(define (simple-stream-flatmap proc s)
+  (simple-flatten (stream-map proc s)))
+
+(define (simple-flatten stream)
+  (stream-map stream-car ; stream-car: stream の先頭要素を取得する手続き
+              (stream-filter
+               (lambda (s)
+                 (not (stream-null? s)))
+               stream)))
