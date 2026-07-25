@@ -1,20 +1,5 @@
 #lang sicp
 
-(#%require (only racket/base module+))
-
-(#%provide add-rule-or-assertion!
-           contract-question-mark
-           instantiate
-           put
-           qeval
-           query-driver-loop
-           query-syntax-process
-           singleton-stream
-           stream-car
-           stream-cdr
-           stream-flatmap
-           stream-map)
-
 (define (prompt-for-input string)
   (newline) (newline) (display string) (newline))
 
@@ -81,10 +66,10 @@
       (error "Bad tagged datum -- CONTENTS" datum)))
 
 
-(define (apply-rules pattern frame)
+(define (apply-rules pattern frame history)
   (stream-flatmap (lambda (rule)
-                    (apply-a-rule rule pattern frame)) ; 1つの規則からは 0 - n のフレームストリームになる
-                  (fetch-rules pattern frame))) ; rule の中から当てはまるものを取得する
+                    (apply-a-rule rule pattern frame history))
+                  (fetch-rules pattern frame)))
 
 ; 駆動ループと具現化
 (define input-prompt ";;; Query input: ")
@@ -125,60 +110,89 @@
 
 ; 評価器
 (define (qeval query frame-stream)
-  (let ((qproc (get (type query) 'qeval))) ; 'qeval (特殊形式) から取得する  
+  (qeval-with-history query frame-stream '()))
+
+(define (qeval-with-history query frame-stream history)
+  (let ((qproc (get (type query) 'qeval)))
     (if qproc
-        (qproc (contents query) frame-stream) ; 特殊形式の場合
-        (simple-query query frame-stream))))
+        (qproc (contents query) frame-stream history)
+        (simple-query query frame-stream history))))
 
 ;; 単純質問
-(define (simple-query query-pattern frame-stream)
+(define (simple-query query-pattern frame-stream history)
   (stream-flatmap
    (lambda (frame)
-     (stream-append-delayed ; find-assertions の完了後、apply-rules を実行するようにする
-      (find-assertions query-pattern frame) ; DB の事実を探す
-      (delay (apply-rules query-pattern frame)))) ; ルールから推論する
+     (let ((normalized-query
+            (normalize-query
+             (instantiate query-pattern
+               frame
+               (lambda (v f) v)))))
+       (if (query-already-in-history? normalized-query history)
+           the-empty-stream
+           (let ((new-history (cons normalized-query history)))
+             (stream-append-delayed
+              (find-assertions query-pattern frame)
+              (delay (apply-rules query-pattern frame new-history)))))))
    frame-stream))
+
+(define (normalize-query exp)
+  (cond ((var? exp) '(? _))
+        ((pair? exp)
+         (cons (normalize-query (car exp))
+               (normalize-query (cdr exp))))
+        (else exp)))
+
+(define (query-already-in-history? query history)
+  (cond ((null? history) false)
+        ((equal? query (car history)) true)
+        (else (query-already-in-history? query (cdr history)))))
 
 ;; 合成質問
 ;;; and
-(define (conjoin conjuncts frame-stream)
+(define (conjoin conjuncts frame-stream history)
   (if (empty-conjunction? conjuncts)
       frame-stream
       (conjoin (rest-conjuncts conjuncts)
-               (qeval (first-conjunct conjuncts) ; 拡張した frame-stream を conjoin に rest conjects とともに渡す
-                      frame-stream))))
+               (qeval-with-history (first-conjunct conjuncts)
+                                   frame-stream
+                                   history)
+               history)))
 (define install-conjoin (put 'and 'qeval conjoin))
 
 ;;; or
-(define (disjoin disjuncts frame-stream)
+(define (disjoin disjuncts frame-stream history)
   (if (empty-disjunction? disjuncts)
       the-empty-stream
       (interleave-delayed
-       (qeval (first-disjunct disjuncts) frame-stream)
+       (qeval-with-history (first-disjunct disjuncts)
+                           frame-stream
+                           history)
        (delay (disjoin (rest-disjuncts disjuncts)
-                       frame-stream))))) ; 並行して frame を拡張するため、それぞれ frame-stream を渡す
+                       frame-stream
+                       history)))))
 (define install-disjoin (put 'or 'qeval disjoin))
 
 ;;; フィルタ
-(define (negate operands frame-stream)
+(define (negate operands frame-stream history)
   (stream-flatmap
    (lambda (frame)
-     (if (stream-null? (qeval (negated-query operands)
-                              (singleton-stream frame)))
+     (if (stream-null? (qeval-with-history (negated-query operands)
+                                           (singleton-stream frame)
+                                           history))
          (singleton-stream frame)
          the-empty-stream))
    frame-stream))
 (define install-negate (put 'not 'qeval negate))
 
-(define (lisp-value call frame-stream)
+(define (lisp-value call frame-stream history)
   (stream-flatmap
    (lambda (frame)
-     (if (execute ; 式を実行する
-          (instantiate ; 式を実行できる形にする
-            call
+     (if (execute
+          (instantiate
+              call
             frame
             (lambda (v f)
-              (error "Unknown pat var -- LISP-VALUE" v)))) ; 未束縛の場合はエラーにする
+              (error "Unknown pat var -- LISP-VALUE" v))))
          (singleton-stream frame)
          the-empty-stream))
    frame-stream))
@@ -204,27 +218,27 @@
         ((eq? name 'null?) null?)
         (else (error "Unknown predicate -- LISP-VALUE" name))))
 
-(define (always-true ignore frame-stream) frame-stream)
+(define (always-true ignore frame-stream history) frame-stream)
 (define install-always-true (put 'always-true 'qeval always-true))
 
 ; パターンマッチにより表明を見つける
 (define (find-assertions pattern frame)
   (stream-flatmap (lambda (datum)
                     (check-an-assertion datum pattern frame))
-                  (fetch-assertions pattern frame))) ; pttern の先頭を見て assertion を絞り込む
+                  (fetch-assertions pattern frame)))
 
 (define (check-an-assertion assertion query-pat query-frame)
   (let ((match-result
          (pattern-match query-pat assertion query-frame)))
     (if (eq? match-result 'failed)
         the-empty-stream
-        (singleton-stream match-result)))) ; frame 1つが返されるため singleton-stream に包む
+        (singleton-stream match-result))))
 
-(define (pattern-match pat dat frame) ; 拡張した frame または failed を返す
+(define (pattern-match pat dat frame)
   (cond ((eq? frame 'failed) 'failed)
         ((equal? pat dat) frame)
-        ((var? pat) (extend-if-consistent pat dat frame)) ; pattern 側が変数の場合 dat に pattern が束縛できるかチェック
-        ((and (pair? pat) (pair? dat)) ; リストなら要素を取り出して比較
+        ((var? pat) (extend-if-consistent pat dat frame))
+        ((and (pair? pat) (pair? dat))
          (pattern-match (cdr pat)
                         (cdr dat)
                         (pattern-match (car pat)
@@ -238,18 +252,19 @@
         (pattern-match (binding-value binding) dat frame)
         (extend var dat frame))))
 
-(define (apply-a-rule rule query-pattern query-frame) ; 1つの規則を質問に適用する
-  (let ((clean-rule (rename-variables-in rule))) ; 変数名を一時的にリネームする。再帰的に探した場合に外側と内側の変数を区別するため
+(define (apply-a-rule rule query-pattern query-frame history)
+  (let ((clean-rule (rename-variables-in rule)))
     (let ((unify-result
            (unify-match query-pattern
                         (conclusion clean-rule)
                         query-frame)))
       (if (eq? unify-result 'failed)
           the-empty-stream
-          (qeval (rule-body clean-rule) ; body がない場合は always-true
-                 (singleton-stream unify-result))))))
+          (qeval-with-history (rule-body clean-rule)
+                              (singleton-stream unify-result)
+                              history)))))
 
-(define (rename-variables-in rule) ; 規則全体を木としてたどって変数を割り当てる
+(define (rename-variables-in rule)
   (let ((rule-application-id (new-rule-application-id)))
     (define (tree-walk exp)
       (cond ((var? exp)
@@ -260,7 +275,7 @@
             (else exp)))
     (tree-walk rule)))
 
-(define (unify-match p1 p2 frame) ; *** 以外は pttern-match と同じ
+(define (unify-match p1 p2 frame)
   (cond ((eq? frame 'failed) 'failed)
         ((equal? p1 p2) frame)
         ((var? p1) (extend-if-possible p1 p2 frame))
@@ -273,7 +288,7 @@
                                    frame)))
         (else 'failed)))
 
-(define (extend-if-possible var val frame) ; *** 以外は extend-if-consistent と同様
+(define (extend-if-possible var val frame)
   (let ((binding (binding-in-frame var frame)))
     (cond (binding
            (unify-match
@@ -288,7 +303,7 @@
            'failed)
           (else (extend var val frame)))))
 
-(define (depends-on? exp var frame) ; 束縛を追加した時に、変数が自分自身を直接的もしくは間接的に参照するようにならないかをチェックする
+(define (depends-on? exp var frame)
   (define (tree-walk e)
     (cond ((var? e)
            (if (equal? var e)
@@ -515,5 +530,41 @@
 (define (extend variable value frame)
   (cons (make-binding variable value) frame))
 
-(module+ main
-  (query-driver-loop))
+(define (add-test-rule-or-assertion! assertion)
+  (add-rule-or-assertion! (query-syntax-process assertion)))
+
+;; Problem 4.69 test data and rules
+(add-test-rule-or-assertion! '(son Adam Cain))
+(add-test-rule-or-assertion! '(son Cain Enoch))
+(add-test-rule-or-assertion! '(son Enoch Irad))
+(add-test-rule-or-assertion! '(son Irad Mehujael))
+(add-test-rule-or-assertion! '(son Mehujael Methushael))
+(add-test-rule-or-assertion! '(son Methushael Lamech))
+(add-test-rule-or-assertion! '(wife Lamech Ada))
+(add-test-rule-or-assertion! '(son Ada Jabal))
+(add-test-rule-or-assertion! '(son Ada Jubal))
+
+(add-test-rule-or-assertion!
+ '(rule (son ?m ?s)
+        (and (wife ?m ?w)
+             (son ?w ?s))))
+
+(add-test-rule-or-assertion!
+ '(rule (ends-in-grandson (grandson))))
+
+(add-test-rule-or-assertion!
+ '(rule (ends-in-grandson (?x . ?rest))
+        (ends-in-grandson ?rest)))
+
+(add-test-rule-or-assertion!
+ '(rule ((grandson) ?g ?s)
+        (and (son ?g ?f)
+             (son ?f ?s))))
+
+(add-test-rule-or-assertion!
+ '(rule ((great . ?rel) ?x ?y)
+        (and (ends-in-grandson ?rel)
+             (son ?x ?z)
+             (?rel ?z ?y))))
+
+(query-driver-loop)

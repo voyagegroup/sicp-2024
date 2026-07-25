@@ -1,5 +1,29 @@
 #lang sicp
 
+
+#|
+4.67
+;;; Query input:
+(assert! (rule (outranked-by-2 ?staff-person ?boss)
+      (or (supervisor ?staff-person ?boss)
+          (and (outranked-by-2 ?middle-manager ?boss) ; ここと
+               (supervisor ?staff-person ?middle-manager))))) ;ここが逆になっている
+
+Assertion added to data base.
+
+;;; Query input:
+(outranked-by-2 (Bitdiddle Ben) ?who)
+
+;;; Query results:
+(outranked-by-2 (Bitdiddle Ben) (Warbucks Oliver))
+
+;;; Query input:
+|#
+
+
+
+#lang sicp
+
 ; get/put(3.3.3より)
 (define (make-table)
   (let ((local-table (list '*table*)))
@@ -572,6 +596,12 @@
 (define input-prompt ";;; Query input:")
 (define output-prompt ";;; Query results:")
 
+; 4.67
+; historyを用意する
+(define history '())
+(define (reset-history!)
+  (set! history '()))
+
 ; 4.4.4
 (define (query-driver-loop)
   (prompt-for-input input-prompt)
@@ -582,15 +612,16 @@
            (display "Assertion added to data base.")
            (query-driver-loop))
           (else
+           (reset-history!) ; reset
            (newline)
            (display output-prompt)
            (display-stream
             (stream-map
              (lambda (frame)
                (instantiate q
-                            frame
-                            (lambda (v f)
-                              (contract-question-mark v))))
+                 frame
+                 (lambda (v f)
+                   (contract-question-mark v))))
              (qeval q (singleton-stream '()))))
            (query-driver-loop)))))
 
@@ -953,13 +984,10 @@ body((+ x y))
 ; 4.4.4 単純質問
 
 (define (simple-query query-pattern frame-stream)
-  ; (display 'query-pattern:)
-  ; (display query-pattern)(newline)
   (stream-flatmap
    (lambda (frame)
      (stream-append-delayed
       (find-assertions query-pattern frame)
-      ; (apply-rules query-pattern frame))) ; 4.71
       (delay (apply-rules query-pattern frame))))
    frame-stream))
 
@@ -976,8 +1004,8 @@ body((+ x y))
       the-empty-stream
       (interleave-delayed
        (qeval (first-disjunct disjuncts) frame-stream)
-       ; (disjoin (rest-disjuncts disjuncts) frame-stream)))) ; 4.71
-       (delay (disjoin (rest-disjuncts disjuncts) frame-stream)))))
+       (delay (disjoin (rest-disjuncts disjuncts)
+                       frame-stream)))))
 
 ; 4.4.4 フィルタ
 (define (negate operands frame-stream)
@@ -993,10 +1021,10 @@ body((+ x y))
    (lambda (frame)
      (if (execute
           (instantiate
-           call
-           frame
-           (lambda (v f)
-             (error "Unknown pat var -- LISP-VALUE" v))))
+              call
+            frame
+            (lambda (v f)
+              (error "Unknown pat var -- LISP-VALUE" v))))
          (singleton-stream frame)
          the-empty-stream))
    frame-stream))
@@ -1005,7 +1033,7 @@ body((+ x y))
 
 (define (execute exp)
   (my-apply (eval (predicate exp) user-initial-environment)
-         (args exp)))
+            (args exp)))
 
 (define (always-true ignore frame-stream) frame-stream)
 
@@ -1063,8 +1091,11 @@ body((+ x y))
                         query-frame)))
       (if (eq? unify-result 'failed)
           the-empty-stream
-          (qeval (rule-body clean-rule)
-                 (singleton-stream unify-result))))))
+          (if (eq? history (conclusion rule)) ; 4.67 historyにいるかをチェック
+              the-empty-stream
+              (begin (set! history (conclusion rule)) ; historyにいれる
+                (qeval (rule-body clean-rule)
+                     (singleton-stream unify-result))))))))
 
 (define (rename-variables-in rule)
   (let ((rule-application-id (new-rule-application-id)))
@@ -1311,11 +1342,11 @@ body((+ x y))
 (define (contract-question-mark variable)
   (string->symbol
    (string-append "?" 
-     (if (number? (cadr variable))
-         (string-append (symbol->string (caddr variable))
-                        "-"
-                        (number->string (cadr variable)))
-         (symbol->string (cadr variable))))))
+                  (if (number? (cadr variable))
+                      (string-append (symbol->string (caddr variable))
+                                     "-"
+                                     (number->string (cadr variable)))
+                      (symbol->string (cadr variable))))))
 
 ; 4.4.4.8
 (define (make-binding variable value)
