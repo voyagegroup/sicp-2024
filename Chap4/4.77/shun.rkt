@@ -55,27 +55,6 @@
 (define input-prompt ";;; Query input:")
 (define output-prompt ";;; Query results:")
 
-(define (query-driver-loop)
-  (prompt-for-input input-prompt)
-  (let ((q (query-syntax-process (read))))
-    (cond ((assertion-to-be-added? q)
-           (add-rule-or-assertion! (add-assertion-body q))
-           (newline)
-           (display "Assertion added to data base.")
-           (query-driver-loop))
-          (else
-           (newline)
-           (display output-prompt)
-           (display-stream
-            (stream-map
-             (lambda (frame)
-               (instantiate q
-                 frame
-                 (lambda (v f)
-                   (contract-question-mark v))))
-             (qeval q (singleton-stream '()))))
-           (query-driver-loop)))))
-
 (define (instantiate exp frame unbound-var-handler)
   (define (copy exp)
     (cond ((var? exp)
@@ -116,28 +95,6 @@
        (qeval (first-disjunct disjuncts) frame-stream)
        (delay (disjoin (rest-disjuncts disjuncts)
                        frame-stream)))))
-
-(define (negate operands frame-stream)
-  (stream-flatmap
-   (lambda (frame)
-     (if (stream-null? (qeval (negated-query operands)
-                              (singleton-stream frame)))
-         (singleton-stream frame)
-         the-empty-stream))
-   frame-stream))
-
-(define (lisp-value call frame-stream)
-  (stream-flatmap
-   (lambda (frame)
-     (if (execute
-          (instantiate
-              call
-            frame
-            (lambda (v f)
-              (error "Unknown pat var -- LISP-VALUE" v))))
-         (singleton-stream frame)
-         the-empty-stream))
-   frame-stream))
 
 (define (execute exp)
   (apply (eval (predicate exp) user-initial-environment)
@@ -453,9 +410,6 @@
 (define (binding-in-frame variable frame)
   (assoc variable (frame-bindings frame)))
 
-(define (extend variable value frame)
-  (cons (make-binding variable value) frame))
-
 (define (prompt-for-input string)
   (newline) (newline) (display string) (newline))
 
@@ -503,7 +457,167 @@
 (define (promise-expression promise)
   (cadr promise))
 
+(define (fully-bound? exp frame)
+  (cond
+    ((var? exp)
+     (let ((binding (binding-in-frame exp frame)))
+       (and binding
+            (fully-bound?
+             (binding-value binding)
+             frame))))
+    ((pair? exp)
+     (and (fully-bound? (car exp) frame)
+          (fully-bound? (cdr exp) frame)))
+    (else true)))
 
+(define (frame-without-promises frame)
+  (make-frame (frame-bindings frame) '()))
+
+(define (promise-satisfied? promise frame)
+  (let ((plain-frame (frame-without-promises frame)))
+    (cond
+      ((eq? (promise-kind promise) 'not)
+       (stream-null?
+        (finalize-frame-stream
+         (qeval
+          (promise-expression promise)
+          (singleton-stream plain-frame)))))
+      ((eq? (promise-kind promise) 'lisp-value)
+       (execute
+        (instantiate
+          (promise-expression promise)
+          plain-frame
+          (lambda (variable ignored-frame)
+            (error
+             "Unknown pat var -- LISP-VALUE"
+             variable)))))
+      (else
+       (error "Unknown promise type"
+              (promise-kind promise))))))
+
+(define (promise-executable? promise frame force?)
+  (or
+   (fully-bound?
+    (promise-expression promise)
+    frame)
+   ;; 最後まで残った not は、
+   ;; 未束縛変数を存在変数として評価する
+   (and force?
+        (eq? (promise-kind promise) 'not))))
+
+(define (check-promises frame force?)
+  (define (iter promises waiting)
+    (cond
+      ((null? promises)
+       (make-frame
+        (frame-bindings frame)
+        (reverse waiting)))
+      ((promise-executable?
+        (car promises)
+        frame
+        force?)
+       (if (promise-satisfied?
+            (car promises)
+            frame)
+           (iter (cdr promises) waiting)
+           'failed))
+      (else
+       (iter
+        (cdr promises)
+        (cons (car promises) waiting)))))
+  (iter (frame-promises frame) '()))
+
+(define (add-promise promise frame)
+  (check-promises
+   (make-frame
+    (frame-bindings frame)
+    (cons promise
+          (frame-promises frame)))
+   false))
+
+(define (extend variable value frame)
+  (check-promises
+   (make-frame
+    (cons
+     (make-binding variable value)
+     (frame-bindings frame))
+    (frame-promises frame))
+   false))
+
+(define (negate operands frame-stream)
+  (stream-flatmap
+   (lambda (frame)
+     (let ((result
+            (add-promise
+             (make-filter-promise
+              'not
+              (negated-query operands))
+             frame)))
+       (if (eq? result 'failed)
+           the-empty-stream
+           (singleton-stream result))))
+   frame-stream))
+
+(define (lisp-value call frame-stream)
+  (stream-flatmap
+   (lambda (frame)
+     (let ((result
+            (add-promise
+             (make-filter-promise
+              'lisp-value
+              call)
+             frame)))
+       (if (eq? result 'failed)
+           the-empty-stream
+           (singleton-stream result))))
+   frame-stream))
+
+(define (force-promises frame)
+  (let ((result (check-promises frame true)))
+    (cond
+      ((eq? result 'failed)
+       'failed)
+      ((not (null? (frame-promises result)))
+       'failed)
+      (else result))))
+
+(define (finalize-frame-stream frame-stream)
+  (stream-flatmap
+   (lambda (frame)
+     (let ((result (force-promises frame)))
+       (if (eq? result 'failed)
+           the-empty-stream
+           (singleton-stream result))))
+   frame-stream))
+
+(define (query-driver-loop)
+  (prompt-for-input input-prompt)
+  (let ((q (query-syntax-process (read))))
+    (cond ((assertion-to-be-added? q)
+           (add-rule-or-assertion! (add-assertion-body q))
+           (newline)
+           (display "Assertion added to data base.")
+           (query-driver-loop))
+          (else
+           (newline)
+           (display output-prompt)
+
+           (let ((result-frames
+                  (finalize-frame-stream
+                   (qeval
+                    q
+                    (singleton-stream
+                     (empty-frame))))))
+             (display-stream
+              (stream-map
+               (lambda (frame)
+                 (instantiate
+                     q
+                   frame
+                   (lambda (variable ignored-frame)
+                     (contract-question-mark variable))))
+               result-frames)))
+           (query-driver-loop)))))
 
 (put 'and 'qeval conjoin)
 (put 'or 'qeval disjoin)
@@ -511,3 +625,27 @@
 (put 'lisp-value 'qeval lisp-value)
 
 (query-driver-loop)
+
+;(assert! (job alice programmer))
+;(assert! (job bob manager))
+
+;(assert! (supervisor alice ben))
+;(assert! (supervisor bob ben))
+
+;(and
+; (not (job ?x programmer))
+; (supervisor ?x ben))
+
+; output
+; (and (not (job bob programmer)) (supervisor bob ben))
+
+
+;(assert! (salary alice 100))
+;(assert! (salary bob 200))
+
+;(and
+; (lisp-value > ?amount 150)
+; (salary ?person ?amount))
+
+; output
+; (and (lisp-value > 200 150) (salary bob 200))
