@@ -1,0 +1,855 @@
+#lang sicp
+
+(#%require (only racket/base module+))
+
+(#%provide add-rule-or-assertion!
+           contract-question-mark
+           instantiate
+           put
+           qeval
+           query-driver-loop
+           query-syntax-process
+           singleton-stream
+           stream-car
+           stream-cdr
+           stream-flatmap
+           stream-map)
+
+(define (prompt-for-input string)
+  (newline) (newline) (display string) (newline))
+
+(define (display-stream s)
+  (stream-for-each display-line s))
+
+
+(define (display-line x)
+  (newline)
+  (display x))
+
+
+(define (stream-for-each proc s)
+  (if (stream-null? s)
+      'done
+      (begin (proc (stream-car s))
+             (stream-for-each proc (stream-cdr s)))))
+
+(define (stream-car stream) (car stream))
+
+
+(define (stream-cdr stream) (force (cdr stream)))
+
+(define (stream-map proc s)
+  (if (stream-null? s)
+      the-empty-stream
+      (cons-stream (proc (stream-car s))
+                   (stream-map proc (stream-cdr s)))))
+
+(define (make-table)
+  (let ((local-table (list '*table*)))
+    (define (lookup key-1 key-2)
+      (let ((subtable (assoc key-1 (cdr local-table))))
+        (if subtable
+            (let ((record (assoc key-2 (cdr subtable))))
+              (if record (cdr record) false))
+            false)))
+    (define (insert! key-1 key-2 value)
+      (let ((subtable (assoc key-1 (cdr local-table))))
+        (if subtable
+            (let ((record (assoc key-2 (cdr subtable))))
+              (if record
+                  (set-cdr! record value)
+                  (set-cdr! subtable
+                            (cons (cons key-2 value)
+                                  (cdr subtable)))))
+            (set-cdr! local-table
+                      (cons (list key-1 (cons key-2 value))
+                            (cdr local-table)))))
+      'ok)
+    (define (dispatch m)
+      (cond ((eq? m 'lookup-proc) lookup)
+            ((eq? m 'insert-proc!) insert!)
+            (else (error "Unknown operation -- TABLE" m))))
+    dispatch))
+
+(define operation-table (make-table))
+(define get (operation-table 'lookup-proc))
+(define put (operation-table 'insert-proc!))
+
+(define (contents datum)
+  (if (pair? datum)
+      (cdr datum)
+      (error "Bad tagged datum -- CONTENTS" datum)))
+
+
+(define (apply-rules pattern frame)
+  (stream-flatmap (lambda (rule)
+                    (apply-a-rule rule pattern frame)) ; 1つの規則からは 0 - n のフレームストリームになる
+                  (fetch-rules pattern frame))) ; rule の中から当てはまるものを取得する
+
+; 駆動ループと具現化
+(define input-prompt ";;; Query input: ")
+(define output-prompt ";;; Query results: ")
+
+(define (query-driver-loop)
+  (prompt-for-input input-prompt)
+  (let ((q (query-syntax-process (read))))
+    (cond ((assertion-to-be-added? q)
+           (add-rule-or-assertion! (add-assertion-body q))
+           (newline)
+           (display "Assertion added to data base.")
+           (query-driver-loop))
+          (else
+           (newline)
+           (display output-prompt)
+           (display-stream
+            (stream-map
+             (lambda (frame)
+               (instantiate q
+                 frame
+                 (lambda (v f)
+                   (contract-question-mark v))))
+             (qeval q (singleton-stream '()))))
+           (query-driver-loop)))))
+
+(define (instantiate exp frame unbound-var-handler)
+  (define (copy exp)
+    (cond ((var? exp)
+           (let ((binding (binding-in-frame exp frame)))
+             (if binding
+                 (copy (binding-value binding))
+                 (unbound-var-handler exp frame))))
+          ((pair? exp)
+           (cons (copy (car exp)) (copy (cdr exp))))
+          (else exp)))
+  (copy exp))
+
+; 評価器
+(define (qeval query frame-stream)
+  (let ((qproc (get (type query) 'qeval))) ; 'qeval (特殊形式) から取得する  
+    (if qproc
+        (qproc (contents query) frame-stream) ; 特殊形式の場合
+        (simple-query query frame-stream))))
+
+;; 単純質問
+(define (simple-query query-pattern frame-stream)
+  (stream-flatmap
+   (lambda (frame)
+     (stream-append-delayed ; find-assertions の完了後、apply-rules を実行するようにする
+      (find-assertions query-pattern frame) ; DB の事実を探す
+      (delay (apply-rules query-pattern frame)))) ; ルールから推論する
+   frame-stream))
+
+;; 合成質問
+;;; and
+(define (conjoin conjuncts frame-stream)
+  (if (empty-conjunction? conjuncts)
+      frame-stream
+      (conjoin (rest-conjuncts conjuncts)
+               (qeval (first-conjunct conjuncts) ; 拡張した frame-stream を conjoin に rest conjects とともに渡す
+                      frame-stream))))
+
+;;; or
+(define (disjoin disjuncts frame-stream)
+  (if (empty-disjunction? disjuncts)
+      the-empty-stream
+      (interleave-delayed
+       (qeval (first-disjunct disjuncts) frame-stream)
+       (delay (disjoin (rest-disjuncts disjuncts)
+                       frame-stream))))) ; 並行して frame を拡張するため、それぞれ frame-stream を渡す
+(define install-disjoin (put 'or 'qeval disjoin))
+
+;;; フィルタ
+; (define (negate operands frame-stream)
+;   (stream-flatmap
+;    (lambda (frame)
+;      (if (stream-null? (qeval (negated-query operands)
+;                               (singleton-stream frame)))
+;          (singleton-stream frame)
+;          the-empty-stream))
+;    frame-stream))
+; (define install-negate (put 'not 'qeval negate))
+
+; (define (lisp-value call frame-stream)
+;   (stream-flatmap
+;    (lambda (frame)
+;      (if (execute ; 式を実行する
+;           (instantiate ; 式を実行できる形にする
+;             call
+;             frame
+;             (lambda (v f)
+;               (error "Unknown pat var -- LISP-VALUE" v)))) ; 未束縛の場合はエラーにする
+;          (singleton-stream frame)
+;          the-empty-stream))
+;    frame-stream))
+; (define install-lisp-value (put 'lisp-value 'qeval lisp-value))
+
+(define (execute exp)
+  (apply (lookup-lisp-predicate (predicate exp))
+         (args exp)))
+
+;; user-initial-environment の代わり
+(define (lookup-lisp-predicate name)
+  (cond ((eq? name '=) =)
+        ((eq? name '<) <)
+        ((eq? name '>) >)
+        ((eq? name '<=) <=)
+        ((eq? name '>=) >=)
+        ((eq? name 'equal?) equal?)
+        ((eq? name 'eq?) eq?)
+        ((eq? name 'number?) number?)
+        ((eq? name 'symbol?) symbol?)
+        ((eq? name 'string?) string?)
+        ((eq? name 'pair?) pair?)
+        ((eq? name 'null?) null?)
+        (else (error "Unknown predicate -- LISP-VALUE" name))))
+
+(define (always-true ignore frame-stream) frame-stream)
+(define install-always-true (put 'always-true 'qeval always-true))
+
+; パターンマッチにより表明を見つける
+(define (find-assertions pattern frame)
+  (stream-flatmap (lambda (datum)
+                    (check-an-assertion datum pattern frame))
+                  (fetch-assertions pattern frame))) ; pttern の先頭を見て assertion を絞り込む
+
+(define (check-an-assertion assertion query-pat query-frame)
+  (let ((match-result
+         (pattern-match query-pat assertion query-frame)))
+    (if (eq? match-result 'failed)
+        the-empty-stream
+        (singleton-stream match-result)))) ; frame 1つが返されるため singleton-stream に包む
+
+(define (pattern-match pat dat frame) ; 拡張した frame または failed を返す
+  (cond ((eq? frame 'failed) 'failed)
+        ((equal? pat dat) frame)
+        ((var? pat) (extend-if-consistent pat dat frame)) ; pattern 側が変数の場合 dat に pattern が束縛できるかチェック
+        ((and (pair? pat) (pair? dat)) ; リストなら要素を取り出して比較
+         (pattern-match (cdr pat)
+                        (cdr dat)
+                        (pattern-match (car pat)
+                                       (car dat)
+                                       frame)))
+        (else 'failed)))
+
+(define (extend-if-consistent var dat frame)
+  (let ((binding (binding-in-frame var frame)))
+    (if binding
+        (pattern-match (binding-value binding) dat frame)
+        (extend var dat frame))))
+
+(define (apply-a-rule rule query-pattern query-frame) ; 1つの規則を質問に適用する
+  (let ((clean-rule (rename-variables-in rule))) ; 変数名を一時的にリネームする。再帰的に探した場合に外側と内側の変数を区別するため
+    (let ((unify-result
+           (unify-match query-pattern
+                        (conclusion clean-rule)
+                        query-frame)))
+      (if (eq? unify-result 'failed)
+          the-empty-stream
+          (qeval (rule-body clean-rule) ; body がない場合は always-true
+                 (singleton-stream unify-result))))))
+
+(define (rename-variables-in rule) ; 規則全体を木としてたどって変数を割り当てる
+  (let ((rule-application-id (new-rule-application-id)))
+    (define (tree-walk exp)
+      (cond ((var? exp)
+             (make-new-variable exp rule-application-id))
+            ((pair? exp)
+             (cons (tree-walk (car exp))
+                   (tree-walk (cdr exp))))
+            (else exp)))
+    (tree-walk rule)))
+
+(define (unify-match p1 p2 frame) ; *** 以外は pttern-match と同じ
+  (cond ((eq? frame 'failed) 'failed)
+        ((equal? p1 p2) frame)
+        ((var? p1) (extend-if-possible p1 p2 frame))
+        ((var? p2) (extend-if-possible p2 p1 frame)); ***
+        ((and (pair? p1) (pair? p2))
+         (unify-match (cdr p1)
+                      (cdr p2)
+                      (unify-match (car p1)
+                                   (car p2)
+                                   frame)))
+        (else 'failed)))
+
+(define (extend-if-possible var val frame) ; *** 以外は extend-if-consistent と同様
+  (let ((binding (binding-in-frame var frame)))
+    (cond (binding
+           (unify-match
+            (binding-value binding) val frame))
+          ((var? val); ***
+           (let ((binding (binding-in-frame val frame)))
+             (if binding
+                 (unify-match
+                  var (binding-value binding) frame)
+                 (extend var val frame))))
+          ((depends-on? val var frame) ; ***
+           'failed)
+          (else (extend var val frame)))))
+
+(define (depends-on? exp var frame) ; 束縛を追加した時に、変数が自分自身を直接的もしくは間接的に参照するようにならないかをチェックする
+  (define (tree-walk e)
+    (cond ((var? e)
+           (if (equal? var e)
+               true
+               (let ((b (binding-in-frame e frame)))
+                 (if b
+                     (tree-walk (binding-value b))
+                     false))))
+          ((pair? e)
+           (or (tree-walk (car e))
+               (tree-walk (cdr e))))
+          (else false)))
+  (tree-walk exp))
+
+; データベース型の保守
+(define THE-ASSERTIONS the-empty-stream)
+
+(define (fetch-assertions pattern frame)
+  (if (use-index? pattern)
+      (get-indexed-assertions pattern)
+      (get-all-assertions)))
+
+(define (get-all-assertions) THE-ASSERTIONS)
+
+(define (get-indexed-assertions pattern)
+  (get-stream (index-key-of pattern) 'assertion-stream))
+
+(define (get-stream key1 key2)
+  (let ((s (get key1 key2)))
+    (if s s the-empty-stream)))
+
+(define THE-RULES the-empty-stream)
+
+(define (fetch-rules pattern frame)
+  (if (use-index? pattern)
+      (get-indexed-rules pattern)
+      (get-all-rules)))
+
+(define (get-all-rules) THE-RULES)
+
+(define (get-indexed-rules pattern)
+  (stream-append
+   (get-stream (index-key-of pattern) 'rule-stream)
+   (get-stream '? 'rule-stream)))
+
+(define (add-rule-or-assertion! assertion)
+  (if (rule? assertion)
+      (add-rule! assertion)
+      (add-assertion! assertion)))
+
+(define (add-assertion! assertion)
+  (store-assertion-in-index assertion)
+  (let ((old-assertions THE-ASSERTIONS))
+    (set! THE-ASSERTIONS
+          (cons-stream assertion old-assertions))
+    'ok))
+
+(define (add-rule! rule)
+  (store-rule-in-index rule)
+  (let ((old-rules THE-RULES))
+    (set! THE-RULES (cons-stream rule old-rules))
+    'ok))
+
+(define (store-assertion-in-index assertion)
+  (if (indexable? assertion)
+      (let ((key (index-key-of assertion)))
+        (let ((current-assertion-stream
+               (get-stream key 'assertion-stream)))
+          (put key
+               'assertion-stream
+               (cons-stream assertion
+                            current-assertion-stream))))))
+
+(define (store-rule-in-index rule)
+  (let ((pattern (conclusion rule)))
+    (if (indexable? pattern)
+        (let ((key (index-key-of pattern)))
+          (let ((current-rule-stream
+                 (get-stream key 'rule-stream)))
+            (put key
+                 'rule-stream
+                 (cons-stream rule
+                              current-rule-stream)))))))
+
+(define (indexable? pat)
+  (or (constant-symbol? (car pat))
+      (var? (car pat))))
+
+(define (index-key-of pat)
+  (let ((key (car pat)))
+    (if (var? key) '? key)))
+
+(define (use-index? pat)
+  (constant-symbol? (car pat)))
+
+; ストリーム演算
+(define (stream-append s1 s2)
+  (if (stream-null? s1)
+      s2
+      (cons-stream (stream-car s1)
+                   (stream-append (stream-cdr s1) s2))))
+
+(define (stream-append-delayed s1 delayed-s2)
+  (if (stream-null? s1)
+      (force delayed-s2)
+      (cons-stream
+       (stream-car s1)
+       (stream-append-delayed (stream-cdr s1) delayed-s2))))
+
+(define (interleave-delayed s1 delayed-s2)
+  (if (stream-null? s1)
+      (force delayed-s2)
+      (cons-stream
+       (stream-car s1)
+       (interleave-delayed (force delayed-s2)
+                           (delay (stream-cdr s1))))))
+
+(define (stream-flatmap proc s)
+  (flatten-stream (stream-map proc s)))
+
+(define (flatten-stream stream)
+  (if (stream-null? stream)
+      the-empty-stream
+      (interleave-delayed
+       (stream-car stream)
+       (delay (flatten-stream (stream-cdr stream))))))
+
+(define (singleton-stream x)
+  (cons-stream x the-empty-stream))
+
+; 質問の構文手続き
+(define (type exp)
+  (if (pair? exp)
+      (car exp)
+      (error "Unknown expression TYPE" exp)))
+
+(define (assertion-to-be-added? exp)
+  (eq? (type exp) 'assert!))
+
+(define (add-assertion-body exp)
+  (car (contents exp)))
+
+(define (empty-conjunction? exps) (null? exps))
+(define (first-conjunct exps) (car exps))
+(define (rest-conjuncts exps) (cdr exps))
+
+(define (empty-disjunction? exps) (null? exps))
+(define (first-disjunct exps) (car exps))
+(define (rest-disjuncts exps) (cdr exps))
+
+(define (negated-query exps) (car exps))
+
+(define (predicate exps) (car exps))
+(define (args exps) (cdr exps))
+
+(define (rule? statement)
+  (tagged-list? statement 'rule))
+
+(define (tagged-list? exp tag)
+  (and (pair? exp)
+       (eq? (car exp) tag)))
+
+(define (conclusion rule) (cadr rule))
+
+(define (rule-body rule)
+  (if (null? (cddr rule))
+      '(always-true)
+      (caddr rule)))
+
+(define (query-syntax-process exp)
+  (map-over-symbols expand-question-mark exp))
+
+(define (map-over-symbols proc exp)
+  (cond ((pair? exp)
+         (cons (map-over-symbols proc (car exp))
+               (map-over-symbols proc (cdr exp))))
+        ((symbol? exp) (proc exp))
+        (else exp)))
+
+(define (expand-question-mark symbol)
+  (let ((chars (symbol->string symbol)))
+    (if (string=? (substring chars 0 1) "?")
+        (list '?
+              (string->symbol
+               (substring chars 1 (string-length chars))))
+        symbol)))
+
+(define (var? exp)
+  (tagged-list? exp '?))
+
+(define (constant-symbol? exp) (symbol? exp))
+
+(define rule-counter 0)
+
+(define (new-rule-application-id)
+  (set! rule-counter (+ 1 rule-counter))
+  rule-counter)
+
+(define (make-new-variable var rule-application-id)
+  (cons '? (cons rule-application-id (cdr var))))
+
+(define (contract-question-mark variable)
+  (string->symbol
+   (string-append "?"
+                  (if (number? (cadr variable))
+                      (string-append (symbol->string (caddr variable))
+                                     "-"
+                                     (number->string (cadr variable)))
+                      (symbol->string (cadr variable))))))
+
+; フレームと束縛
+(define (make-binding variable value)
+  (cons variable value))
+
+(define (binding-variable binding)
+  (car binding))
+
+(define (binding-value binding)
+  (cdr binding))
+
+(define (binding-in-frame variable frame)
+  (assoc variable frame))
+
+(define (extend variable value frame)
+  (cons (make-binding variable value) frame))
+
+; --- ここから解答 ---
+
+; 4.76
+; 2つのフレームを結合する
+(define (merge-frames frame1 frame2)
+  (let ((merged-bindings
+          (merge-bindings
+            (frame-bindings frame1)
+            (frame-bindings frame2)))
+        (promises
+          (append
+            (promises-in-frame frame1)
+            (promises-in-frame frame2))))
+    (if (eq? merged-bindings 'failed)
+        'failed
+        (check-promises
+          (add-promises
+            promises
+            merged-bindings)))))
+
+; 2つのフレームストリームを結合する
+(define (merge-frame-streams stream1 stream2)
+  (stream-flatmap
+   (lambda (frame1)
+     (stream-flatmap
+      (lambda (frame2)
+        (let ((merged-frame
+               (merge-frames frame1 frame2)))
+          (if (eq? merged-frame 'failed)
+              the-empty-stream
+              (singleton-stream merged-frame))))
+      stream2))
+   stream1))
+
+(define (conjoin-2 conjuncts frame-stream)
+  (cond ((empty-conjunction? conjuncts)
+         frame-stream)
+        ((empty-conjunction?
+          (rest-conjuncts conjuncts))
+         (qeval
+          (first-conjunct conjuncts)
+          frame-stream))
+        (else
+         (stream-flatmap
+          (lambda (frame)
+            (let ((first-result
+                   (qeval
+                    (first-conjunct conjuncts)
+                    (singleton-stream frame)))
+                  (rest-result
+                   (conjoin-2
+                    (rest-conjuncts conjuncts)
+                    (singleton-stream frame))))
+              (merge-frame-streams
+               first-result
+               rest-result)))
+          frame-stream))))
+(define install-conjoin (put 'and 'qeval conjoin-2))
+
+
+; 変数が束縛されているか調べる
+(define (bound-variable? variable frame)
+  (let ((binding
+         (binding-in-frame variable frame)))
+    (if binding
+        (all-variables-bound?
+         (binding-value binding)
+         frame)
+        false)))
+
+
+; 式に含まれるすべての変数が束縛されているか調べる
+(define (all-variables-bound? exp frame)
+  (cond ((var? exp)
+         (bound-variable? exp frame))
+        ((pair? exp)
+         (and
+          (all-variables-bound? (car exp) frame)
+          (all-variables-bound? (cdr exp) frame)))
+        (else
+         true)))
+
+; 判定によって処理を分ける
+(define (lisp-value call frame-stream)
+  (stream-flatmap
+    (lambda (frame)
+      (if (all-variables-bound? call frame)
+          (if (execute
+                (instantiate
+                  call
+                  frame
+                  (lambda (v f)
+                    (error "Unknown pat var --- LISP-VALUE" v))))
+              (singleton-stream frame)
+              the-empty-stream)
+          (delay-lisp-value call frame)))
+    frame-stream))
+
+(define install-lisp-value (put 'lisp-value 'qeval lisp-value))
+
+; 変数が束縛されていない時、保存する形として promise を利用する
+; 例: (lisp-value > (? amount) 30000) -> (promise lisp-value (> (? amount) 30000))
+
+; promise も *promises* として特別な束縛としてフレームに保存する
+; 例: ((*promises* (promise lisp-value (> (? amount) 30000))))
+(define promise-variable '*promises*)
+
+(define (make-promise type contents)
+  (list 'promise type contents))
+
+(define (promise? object)
+  (tagged-list? object 'promise))
+
+(define (promise-type promise)
+  (cadr promise))
+
+(define (promise-contents promise)
+  (caddr promise))
+
+; promise を frame に追加する
+(define (add-promise promise frame)
+  (let ((binding
+          (binding-in-frame promise-variable frame)))
+    (if binding
+        (replace-binding
+          promise-variable
+          (cons promise
+                (binding-value binding))
+          frame)
+        (extend
+          promise-variable
+          (list promise)
+          frame))))
+
+; 2回目以降 promise を追加する時に (*promises* promise1 promise2) という形に変換する
+(define (replace-binding variable value frame)
+  (cond ((null? frame)
+         (list (make-binding variable value)))
+        ((equal? variable
+                 (binding-variable (car frame)))
+         (cons
+           (make-binding variable value)
+           (cdr frame)))
+        (else
+          (cons
+            (car frame)
+            (replace-binding
+              variable
+              value
+              (cdr frame))))))
+
+(define (delay-lisp-value call frame)
+  (singleton-stream
+    (add-promise
+      (make-promise 'lisp-value call)
+      frame)))
+
+; フレーム中の promise 一覧を取得する
+(define (promises-in-frame frame)
+  (let ((binding
+          (binding-in-frame promise-variable frame)))
+    (if binding
+        (binding-value binding)
+        '())))
+
+; フレームから特定の束縛を除く
+(define (remove-binding variable frame)
+  (cond ((null? frame)
+         '())
+        ((equal? variable (binding-variable (car frame)))
+         (remove-binding variable (cdr frame)))
+        (else
+          (cons
+            (car frame)
+            (remove-binding variable
+                            (cdr frame))))))
+
+; 通常の束縛だけを取り出す
+(define (frame-bindings frame)
+  (remove-binding promise-variable frame))
+
+; 複数のpromiseをフレームへ保存する
+; frameには既存の*promises*束縛がないことを前提とする
+(define (add-promises promises frame)
+  (if (null? promises)
+      frame
+      (extend
+       promise-variable
+       promises
+       frame)))
+
+; lisp-valueのpromiseを評価する
+(define (process-lisp-value-promise call frame)
+  (cond
+    ((not (all-variables-bound? call frame))
+     'pending)
+
+    ((execute
+      (instantiate
+       call
+       frame
+       (lambda (v f)
+         (error "Unknown pat var -- LISP-VALUE" v))))
+     'succeeded)
+
+    (else
+     'failed)))
+
+
+; promiseの種類に応じて処理を振り分ける
+(define (process-promise promise frame)
+  (cond
+    ((eq? (promise-type promise) 'lisp-value)
+     (process-lisp-value-promise
+      (promise-contents promise)
+      frame))
+    ((eq? (promise-type promise) 'not)
+     (process-not-promise
+      (promise-contents promise)
+      frame))
+    (else
+     (error "Unknown promise type -- PROCESS-PROMISE"
+            (promise-type promise)))))
+
+
+; promise一覧を順番に処理する
+(define (process-promises promises frame)
+  (define (iter rest-promises pending-promises)
+    (cond
+      ((null? rest-promises)
+       (add-promises
+        pending-promises
+        frame))
+      (else
+       (let ((result
+              (process-promise
+               (car rest-promises)
+               frame)))
+         (cond
+           ((eq? result 'failed)
+            'failed)
+
+           ((eq? result 'pending)
+            (iter
+             (cdr rest-promises)
+             (cons
+              (car rest-promises)
+              pending-promises)))
+
+           (else
+            (iter
+             (cdr rest-promises)
+             pending-promises)))))))
+  (iter promises '()))
+
+; フレーム内のpromiseを再評価する
+(define (check-promises frame)
+  (process-promises
+   (promises-in-frame frame)
+   (frame-bindings frame)))
+
+; promise を含まない通常の束縛同士を結合する
+(define (merge-bindings bindings result-frame)
+  (cond ((eq? result-frame 'failed)
+         'failed)
+        ((null? bindings)
+         result-frame)
+        (else
+          (let ((binding (car bindings)))
+            (merge-bindings
+              (cdr bindings)
+              (extend-if-possible
+                (binding-variable binding)
+                (binding-value binding)
+                result-frame))))))
+
+
+; not をすぐに評価できない場合、promise として保存する
+(define (delay-not query frame)
+  (singleton-stream
+   (add-promise
+    (make-promise 'not query)
+    frame)))
+
+; notを評価する
+(define (negate operands frame-stream)
+  (let ((query (negated-query operands)))
+    (stream-flatmap
+     (lambda (frame)
+       (if (all-variables-bound? query frame)
+           (if (stream-null?
+                (qeval
+                 query
+                 (singleton-stream frame)))
+               (singleton-stream frame)
+               the-empty-stream)
+           (delay-not query frame)))
+     frame-stream)))
+
+(define install-negate (put 'not 'qeval negate))
+
+; 保留されていたnotを評価する
+(define (process-not-promise query frame)
+  (cond
+    ((not (all-variables-bound? query frame))
+     'pending)
+    ((stream-null?
+      (qeval
+       query
+       (singleton-stream frame)))
+     'succeeded)
+    (else
+     'failed)))
+
+
+; --- ここまで ---
+
+(module+ main
+  (query-driver-loop))
+
+; --- 確認用のデータ ---
+; assertions
+; (assert! (salary (Bitdiddle Ben) 60000))
+; (assert! (salary (Hacker Alyssa P) 40000))
+; (assert! (salary (Tweakit Lem E) 25000))
+; 
+; (assert! (job (Bitdiddle Ben) (computer wizard)))
+; (assert! (job (Hacker Alyssa P) (computer programmer)))
+; (assert! (job (Tweakit Lem E) (computer technician)))
+;
+; query: lisp-value
+;(and
+;  (lisp-value > ?amount 30000)
+;  (salary ?person ?amount))
+;
+; query: not
+; (and
+;  (not (job ?person (computer programmer)))
+;  (salary ?person ?amount))
