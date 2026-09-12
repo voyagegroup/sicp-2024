@@ -145,19 +145,11 @@
 
 ; extract-labelsは引数としてリストtext(制御器の命令の式の列)と, receive手続きをとる. receiveは二つの値: (1)それぞれがtextの命令を含んでいる命令のデータ構造のリストinstsと(2)textの各ラベルを, リストinsts内のラベルが指示している位置と対応づけるlabelsという表で呼び出される.
 (define (extract-labels text receive)
-  (display 'recieve:)
-  (display receive)(newline)
-  (display 'text)
-  (display text)
-  (newline)
   (if (null? text)
       (receive '() '())
       (extract-labels (cdr text)
                       (lambda (insts labels)
                         (let ((next-inst (car text)))
-                          (display 'next-inst)
-                          (display next-inst)
-                          (newline)
                           (if (symbol? next-inst)
                               (if (assoc next-inst labels) ; 5.8
                                   (error "exist same label:" next-inst)
@@ -356,15 +348,23 @@
 (define (label-exp-label exp) (cadr exp))
 
 
-
 (define (make-operation-exp exp machine labels operations)
   (let ((op (lookup-prim (operation-exp-op exp) operations))
         (aprocs
          (map (lambda (e)
-                (make-primitive-exp e machine labels))
+                (cond
+                  ((constant-exp? e) ; 5.9
+                   (make-primitive-exp e machine labels))
+                  ((register-exp? e) ; 5.9
+                   (make-primitive-exp e machine labels))
+                  (else
+                   (error "Invalid operand for operation -- ASSEMBLE" e))))
               (operation-exp-operands exp))))
     (lambda ()
-      (apply op (map (lambda (p) (p)) aprocs)))))
+      (apply op
+             (map (lambda (p) (p))
+                  aprocs)))))
+
 (define (operation-exp? exp)
   (and (pair? exp) (tagged-list? (car exp) 'op)))
 
@@ -429,30 +429,19 @@
     dispatch))
 |#
 
-; 5.8
+
+;5.9
+; (op +) (const 1) (reg 1) みたいなやつだけにしたい
+; (op +) (const 1) (label here) みたいなやつはエラーにしたい
 
 
-(define here-machine
+(define machine-5-9-error
   (make-machine
    '(a)
-   (list)
-   '(start
-     (goto (label here))
+   (list
+    (list 'list list))
+   '(
+     (assign a (op list) (label here))
    here
-     (assign a (const 3))
-     (goto (label there))
-   here
-     (assign a (const 4))
-     (goto (label there))
-   there)))
-
-(set-register-contents! here-machine 'a 1)
-(start here-machine)
-(get-register-contents here-machine 'a)
-; 修正前は3が出力された
-
-
-
-
-
-
+     (assign a (const 10))
+   done)))

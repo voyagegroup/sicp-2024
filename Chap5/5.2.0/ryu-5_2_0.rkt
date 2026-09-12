@@ -353,10 +353,19 @@
   (let ((op (lookup-prim (operation-exp-op exp) operations))
         (aprocs
          (map (lambda (e)
-                (make-primitive-exp e machine labels))
+                (cond
+                  ((constant-exp? e) ; 5.9
+                   (make-primitive-exp e machine labels))
+                  ((register-exp? e) ; 5.9
+                   (make-primitive-exp e machine labels))
+                  (else
+                   (error "Invalid operand for operation -- ASSEMBLE" e))))
               (operation-exp-operands exp))))
     (lambda ()
-      (apply op (map (lambda (p) (p)) aprocs)))))
+      (apply op
+             (map (lambda (p) (p))
+                  aprocs)))))
+
 (define (operation-exp? exp)
   (and (pair? exp) (tagged-list? (car exp) 'op)))
 
