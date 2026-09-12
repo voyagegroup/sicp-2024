@@ -145,6 +145,11 @@
 
 ; extract-labelsは引数としてリストtext(制御器の命令の式の列)と, receive手続きをとる. receiveは二つの値: (1)それぞれがtextの命令を含んでいる命令のデータ構造のリストinstsと(2)textの各ラベルを, リストinsts内のラベルが指示している位置と対応づけるlabelsという表で呼び出される.
 (define (extract-labels text receive)
+  (display 'recieve:)
+  (display receive)(newline)
+  (display 'text)
+  (display text)
+  (newline)
   (if (null? text)
       (receive '() '())
       (extract-labels (cdr text)
@@ -421,27 +426,30 @@
     dispatch))
 |#
 
+; 5.8
 
-; 5.1.1節のGCD計算機のモデルである gcd-machineを次のように定義する.
-(define gcd-machine
+
+(define here-machine
   (make-machine
-   '(a b t)
-   (list (list 'rem remainder) (list '= =))
-   '(test-b
-     (test (op =) (reg b) (const 0))
-     (branch (label gcd-done))
-     (assign t (op rem) (reg a) (reg b))
-     (assign a (reg b))
-     (assign b (reg t))
-     (goto (label test-b))
-   gcd-done)))
+   '(a)
+   (list)
+   '(start
+     (goto (label here))
+   here
+     (assign a (const 3))
+     (goto (label there))
+   here
+     (assign a (const 4))
+     (goto (label there))
+   there)))
 
-(set-register-contents! gcd-machine 'a 206)
+(set-register-contents! here-machine 'a 1)
+(start here-machine)
+(get-register-contents here-machine 'a)
+; 修正前は3が出力された
 
-(set-register-contents! gcd-machine 'b 40)
 
-(start gcd-machine)
 
-(get-register-contents gcd-machine 'a)
 
-; 2
+
+
