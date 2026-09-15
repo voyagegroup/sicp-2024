@@ -348,7 +348,6 @@
 (define (label-exp-label exp) (cadr exp))
 
 
-
 (define (make-operation-exp exp machine labels operations)
   (let ((op (lookup-prim (operation-exp-op exp) operations))
         (aprocs
@@ -431,26 +430,18 @@
 |#
 
 
-; 5.1.1節のGCD計算機のモデルである gcd-machineを次のように定義する.
-(define gcd-machine
+;5.9
+; (op +) (const 1) (reg 1) みたいなやつだけにしたい
+; (op +) (const 1) (label here) みたいなやつはエラーにしたい
+
+
+(define machine-5-9-error
   (make-machine
-   '(a b t)
-   (list (list 'rem remainder) (list '= =))
-   '(test-b
-     (test (op =) (reg b) (const 0))
-     (branch (label gcd-done))
-     (assign t (op rem) (reg a) (reg b))
-     (assign a (reg b))
-     (assign b (reg t))
-     (goto (label test-b))
-   gcd-done)))
-
-(set-register-contents! gcd-machine 'a 206)
-
-(set-register-contents! gcd-machine 'b 40)
-
-(start gcd-machine)
-
-(get-register-contents gcd-machine 'a)
-
-; 2
+   '(a)
+   (list
+    (list 'list list))
+   '(
+     (assign a (op list) (label here))
+   here
+     (assign a (const 10))
+   done)))

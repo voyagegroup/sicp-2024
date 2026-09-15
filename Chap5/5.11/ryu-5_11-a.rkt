@@ -430,27 +430,107 @@
     dispatch))
 |#
 
-
-; 5.1.1節のGCD計算機のモデルである gcd-machineを次のように定義する.
-(define gcd-machine
+(define stack-test-machine
   (make-machine
-   '(a b t)
-   (list (list 'rem remainder) (list '= =))
-   '(test-b
-     (test (op =) (reg b) (const 0))
-     (branch (label gcd-done))
-     (assign t (op rem) (reg a) (reg b))
-     (assign a (reg b))
-     (assign b (reg t))
-     (goto (label test-b))
-   gcd-done)))
+   '(x y)
+   '()
+   '(
+     (assign x (const 10))
+     (assign y (const 20))
 
-(set-register-contents! gcd-machine 'a 206)
+     (save x)
+     (save y)
 
-(set-register-contents! gcd-machine 'b 40)
+     (restore x)
+     (restore y)
+     )))
 
-(start gcd-machine)
+(start stack-test-machine)
 
-(get-register-contents gcd-machine 'a)
+(get-register-contents stack-test-machine 'x)
+(get-register-contents stack-test-machine 'y)
 
-; 2
+#|
+     (restore x)
+     (restore y)
+だと
+10
+20
+
+     (restore y)
+     (restore x)
+だと
+20
+10
+|#
+
+
+(define fib-machine
+  (make-machine
+   '(n val continue)
+   (list
+    (list '< <)
+    (list '- -)
+    (list '+ +))
+   '(
+     (assign continue (label fib-done))
+
+     fib-loop
+       (test (op <) (reg n) (const 2))
+       (branch (label immediate-answer))
+
+       (save continue)
+       (assign continue (label afterfib-n-1))
+       (save n)
+       (assign n (op -) (reg n) (const 1))
+       (goto (label fib-loop))
+
+     afterfib-n-1
+       (restore n)
+       (restore continue)
+
+       (assign n (op -) (reg n) (const 2))
+       (save continue)
+       (assign continue (label afterfib-n-2))
+       (save val)
+       (goto (label fib-loop))
+
+     afterfib-n-2
+
+       ;; 5.11 a
+       ;; afterfib-n-2 に来た時点
+       ;; val = Fib(n-2)
+       ;; stack の一番上 = Fib(n-1)
+     
+       ;; 元のコード
+
+       ;; (assign n (reg val))
+       ;; n = Fib(n-2)
+       ;; val = Fib(n-2)
+
+       ;; (restore val)
+       ;; n = Fib(n-2)
+       ;; val = Fib(n-1)
+
+       ;; 今回
+       (restore n)
+       ;; val = Fib(n-2)
+       ;; n = Fib(n-1)
+
+       (restore continue)
+       (assign val
+               (op +) (reg val) (reg n))
+       (goto (reg continue))
+
+     immediate-answer
+       (assign val (reg n))
+       (goto (reg continue))
+
+     fib-done
+     )))
+
+(set-register-contents! fib-machine 'n 5)
+
+(start fib-machine)
+
+(get-register-contents fib-machine 'val)

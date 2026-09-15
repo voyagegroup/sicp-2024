@@ -62,25 +62,54 @@
 (define (make-new-machine)
   (let ((pc (make-register 'pc))
         (flag (make-register 'flag))
-        (stack (make-stack))
+        ;; (stack (make-stack)) 5.11-c 旧スタックはコメントアウト
         (the-instruction-sequence '()))
-    (let ((the-ops
-           (list (list 'initialize-stack
-                       (lambda () (stack 'initialize)))))
+    (let ((the-ops '())
+          ; (list (list 'initialize-stack
+          ; (lambda () (stack 'initialize)))))
           (register-table
-           (list (list 'pc pc) (list 'flag flag))))
+           (list (list 'pc pc) (list 'flag flag)))
+          ;; 5.11 専用stack
+          (stack-table '()))
+      
       (define (allocate-register name)
         (if (assoc name register-table)
             (error "Multiply define register: " name)
-            (set! register-table
-                  (cons (list name (make-register name))
-                        register-table)))
+            (begin
+              (set! register-table
+                    (cons (list name (make-register name))
+                          register-table))
+
+              ;; 5.11 レジスタを作る時に専用stackも作る
+              (set! stack-table
+                    (cons
+                     (list name (make-stack))
+                     stack-table))))
         'register-allocated)
       (define (lookup-register name)
         (let ((val (assoc name register-table)))
           (if val
               (cadr val)
               (error "Unknown register:" name))))
+
+      ;; 5.11 専用stack取得
+      (define (lookup-stack name)
+        (let ((val (assoc name stack-table)))
+          (if val
+              (cadr val)
+              (error "Unknown stack:" name))))
+
+      ;; 5.11 stackの初期化
+      (define (initialize-stacks)
+        (for-each
+         (lambda (entry) ((cadr entry) 'initialize))
+         stack-table))
+      (set! the-ops
+            (list
+             (list 'initialize-stack
+                   (lambda ()
+                     (initialize-stacks)))))
+      
       (define (execute)
         (let ((insts (get-contents pc)))
           (if (null? insts)
@@ -99,7 +128,8 @@
               ((eq? message 'get-register) lookup-register)
               ((eq? message 'install-operations)
                (lambda (ops) (set! the-ops (append the-ops ops))))
-              ((eq? message 'stack) stack)
+              ; ((eq? message 'stack) stack)
+              ((eq? message 'get-stack) lookup-stack) ;; 5.11
               ((eq? message 'operations) the-ops)
               (else (error "Unknown request -- MACHINE" message))))
       dispatch)))
@@ -162,7 +192,7 @@
 (define (update-insts! insts labels machine)
   (let ((pc (get-register machine 'pc))
         (flag (get-register machine 'flag))
-        (stack (machine 'stack))
+        ; (stack (machine 'stack))
         (ops (machine 'operations)))
     (for-each
      (lambda (inst)
@@ -170,7 +200,8 @@
         inst
         (make-execution-procedure
          (instruction-text inst) labels machine
-         pc flag stack ops)))
+         ; pc flag stack ops)))
+         pc flag ops)))
      insts)))
 
 (define (make-instruction text)
@@ -196,7 +227,8 @@
 
 ; 5.2.3 命令の実行手続きの生成
 (define (make-execution-procedure inst labels machine
-                                  pc flag stack ops)
+                                  ; pc flag stack ops)
+                                  pc flag ops)
   (cond ((eq? (car inst) 'assign)
          (make-assign inst machine labels ops pc))
         ((eq? (car inst) 'test)
@@ -206,9 +238,11 @@
         ((eq? (car inst) 'goto)
          (make-goto inst machine labels pc))
         ((eq? (car inst) 'save)
-         (make-save inst machine stack pc))
+         ; (make-save inst machine stack pc))
+         (make-save inst machine pc))
         ((eq? (car inst) 'restore)
-         (make-restore inst machine stack pc))
+         ; (make-restore inst machine stack pc))
+         (make-restore inst machine pc))
         ((eq? (car inst) 'perform)
          (make-perform inst machine labels ops pc))
         (else (error "Unknown instruction type -- ASSEMBLE" inst))))
@@ -287,19 +321,23 @@
               
 
 ; その他の命令
-(define (make-save inst machine stack pc)
-  (let ((reg (get-register machine
-                           (stack-inst-reg-name inst))))
-    (lambda ()
-      (push stack (get-contents reg))
-      (advance-pc pc))))
+(define (make-save inst machine pc)
+  (let ((reg-name (stack-inst-reg-name inst)))
+    (let ((reg (get-register machine reg-name))
+          (stack ((machine 'get-stack) reg-name))) ; 5.11 reg-nameで専用stackを取る
+     
+      (lambda ()
+        (push stack (get-contents reg))
+        (advance-pc pc)))))
 
-(define (make-restore inst machine stack pc)
-  (let ((reg (get-register machine
-                           (stack-inst-reg-name inst))))
-    (lambda ()
-      (set-contents! reg (pop stack))
-      (advance-pc pc))))
+(define (make-restore inst machine pc)
+  (let ((reg-name (stack-inst-reg-name inst)))
+    (let ((reg (get-register machine reg-name))
+          (stack ((machine 'get-stack) reg-name))) ; 5.11 こっちも専用stackをとる
+      (lambda ()
+        (set-contents! reg (pop stack))
+        (advance-pc pc)))))
+
 
 (define (stack-inst-reg-name stack-instruction)
   (cadr stack-instruction))
@@ -431,26 +469,46 @@
 |#
 
 
-; 5.1.1節のGCD計算機のモデルである gcd-machineを次のように定義する.
-(define gcd-machine
+
+
+
+
+(define stack-test-machine
   (make-machine
-   '(a b t)
-   (list (list 'rem remainder) (list '= =))
-   '(test-b
-     (test (op =) (reg b) (const 0))
-     (branch (label gcd-done))
-     (assign t (op rem) (reg a) (reg b))
-     (assign a (reg b))
-     (assign b (reg t))
-     (goto (label test-b))
-   gcd-done)))
+   '(x y)
+   '()
+   '(
+     ;; x = 10 を退避
+     (assign x (const 10))
+     (save x)
 
-(set-register-contents! gcd-machine 'a 206)
+     ;; y = 20 を退避
+     (assign y (const 20))
+     (save y)
 
-(set-register-contents! gcd-machine 'b 40)
+     ;; さらに x = 30 を退避
+     (assign x (const 30))
+     (save x)
 
-(start gcd-machine)
+     ;; 値を適当に変更
+     (assign x (const 100))
+     (assign y (const 200))
 
-(get-register-contents gcd-machine 'a)
+     ;; y の後に x を save しているが、
+     ;; y 専用stackから復元できる
+     (restore y)
 
-; 2
+     ;; x 専用stackから順番に復元
+     (restore x)
+     ; (restore x) このコメントを外すと x = 10になる
+     )))
+
+(start stack-test-machine)
+
+(display "x = ")
+(display (get-register-contents stack-test-machine 'x))
+(newline)
+
+(display "y = ")
+(display (get-register-contents stack-test-machine 'y))
+(newline)

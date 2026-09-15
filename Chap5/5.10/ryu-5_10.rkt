@@ -219,11 +219,15 @@
          (get-register machine (assign-reg-name inst)))
         (value-exp (assign-value-exp inst)))
     (let ((value-proc
-           (if (operation-exp? value-exp)
-               (make-operation-exp
-                value-exp machine labels operations)
-               (make-primitive-exp
-                (car value-exp) machine labels))))
+           (cond ((operation-exp? value-exp)
+                  (make-operation-exp
+                   value-exp machine labels operations))
+                 ((add-exp? (car value-exp)) ;; 5.10
+                  (make-add-exp
+                   (car value-exp) machine labels operations))
+                 (else
+                  (make-primitive-exp
+                   (car value-exp) machine labels)))))
       (lambda () ; assign の実行手続き
         (set-contents! target (value-proc))
         (advance-pc pc)))))
@@ -348,7 +352,6 @@
 (define (label-exp-label exp) (cadr exp))
 
 
-
 (define (make-operation-exp exp machine labels operations)
   (let ((op (lookup-prim (operation-exp-op exp) operations))
         (aprocs
@@ -374,6 +377,28 @@
 
 (define (operation-exp-operands operation-exp)
   (cdr operation-exp))
+
+
+;; 5.10
+; (add (const 1) (const 2)) のような組み込みで足し算を入れる
+(define (add-exp? exp)
+  ;; exp = (add (const 1) (const 2))
+  ;; car = add
+  (and (pair? exp) (tagged-list? exp 'add)))
+
+(define (add-exp-operands add-exp)
+  (cdr add-exp))
+
+(define (make-add-exp exp machine labels operations)
+  (let ((aprocs
+         (map (lambda (e)
+                (make-primitive-exp e machine labels))
+              (add-exp-operands exp))))
+    (lambda ()
+      (apply + (map (lambda (p) (p)) aprocs)))))
+ 
+;;
+
 
 (define (lookup-prim symbol operations)
   (let ((val (assoc symbol operations)))
@@ -431,26 +456,24 @@
 |#
 
 
-; 5.1.1節のGCD計算機のモデルである gcd-machineを次のように定義する.
-(define gcd-machine
+;5.9
+; (op +) (const 1) (reg 1) みたいなやつだけにしたい
+; (op +) (const 1) (label here) みたいなやつはエラーにしたい
+
+
+(define machine-5-10
   (make-machine
-   '(a b t)
-   (list (list 'rem remainder) (list '= =))
-   '(test-b
-     (test (op =) (reg b) (const 0))
-     (branch (label gcd-done))
-     (assign t (op rem) (reg a) (reg b))
-     (assign a (reg b))
-     (assign b (reg t))
-     (goto (label test-b))
-   gcd-done)))
+   '(a b c)
+   (list
+    (list 'list list)
+    (list 'add +))
+   '(
+     (assign a (op add) (const 1) (const 2))
+     (assign b (add (const 1) (const 2) (const 3)))
+     (assign c (add (reg a) (reg b)))
+   )))
 
-(set-register-contents! gcd-machine 'a 206)
-
-(set-register-contents! gcd-machine 'b 40)
-
-(start gcd-machine)
-
-(get-register-contents gcd-machine 'a)
-
-; 2
+(start machine-5-10)
+(get-register-contents machine-5-10 'a) ; 3
+(get-register-contents machine-5-10 'b) ; 6
+(get-register-contents machine-5-10 'c) ; 9
