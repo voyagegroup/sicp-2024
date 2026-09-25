@@ -83,8 +83,10 @@
               'done
               (begin
                 (set! instruction-count (+ instruction-count 1))
-                (display (instruction-text (car insts))) ; 5.16
-                (newline)
+                (if tracing?
+                    (begin
+                      (display (instruction-text (car insts))) ; 5.16
+                      (newline)))
                 ((instruction-execution-proc (car insts)))
                 (execute)))))
       (define (dispatch message)
@@ -311,7 +313,7 @@
         ((register-exp? exp)
          (let ((r (get-register machine
                                 (register-exp-reg exp))))
-         (lambda () (get-contents r))))
+           (lambda () (get-contents r))))
         (else
          (error "Unknnown expression type -- ASSEMBLE" exp))))
 
