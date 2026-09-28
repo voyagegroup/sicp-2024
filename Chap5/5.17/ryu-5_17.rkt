@@ -97,6 +97,11 @@
                 ; 5.16 traceが#tなら実行前に命令を表示
                 (if trace?
                     (begin
+                      ;; 5.17 ラベルがあれば表示
+                      (if (not (null? (instruction-label (car insts))))
+                          (begin
+                            (newline)
+                            (display (instruction-label (car insts)))))
                       (newline)
                       (display (instruction-text (car insts)))))
 
@@ -184,9 +189,13 @@
                           (if (symbol? next-inst)
                               (if (assoc next-inst labels) ; 5.8
                                   (error "exist same label:" next-inst)
-                              (receive insts
-                                       (cons (make-label-entry next-inst insts)
-                                             labels)))
+                                  (begin
+                                    ; 5.17 命令ラベルを保存
+                                    (if (not (null? insts))
+                                        (set-instruction-label! (car insts) next-inst))
+                                    (receive insts
+                                             (cons (make-label-entry next-inst insts)
+                                                   labels))))
                               (receive (cons (make-instruction next-inst) insts)
                                        labels)))))))
 ; update-insts!は, 最初命令の文書を持っていただけの命令リストを, 対応する実行手続きを含むように修正する:
@@ -205,16 +214,25 @@
      insts)))
 
 (define (make-instruction text)
-  (cons text '()))
+  ; 5.17 ラベルをもたせる
+  (list text '() '())) 
 
 (define (instruction-text inst)
   (car inst))
 
+; 5.17 ラベルの選択肢
+(define (instruction-label inst)
+  (cadr inst))
+
 (define (instruction-execution-proc inst)
-  (cdr inst))
+  (caddr inst))
 
 (define (set-instruction-execution-proc! inst proc)
-  (set-cdr! inst proc))
+  (set-car! (cddr inst) proc))
+
+; 5.17 命令ラベルを設定
+(define (set-instruction-label! inst label)
+  (set-car! (cdr inst) label))
 
 (define (make-label-entry label-name insts)
   (cons label-name insts))
@@ -493,3 +511,36 @@
 
 (set-register-contents! fact-machine 'n 2)
 (start fact-machine)
+
+#|
+Welcome to DrRacket, version 8.12 [cs].
+Language: sicp, with debugging; memory limit: 128 MB.
+done
+
+start
+(perform (op initialize-stack))
+(assign continue (label fact-done))
+fact-loop
+(test (op =) (reg n) (const 1))
+(branch (label base-case))
+(save continue)
+(save n)
+(assign n (op -) (reg n) (const 1))
+(assign continue (label after-fact))
+(goto (label fact-loop))
+fact-loop
+(test (op =) (reg n) (const 1))
+(branch (label base-case))
+base-case
+(assign val (const 1))
+(goto (reg continue))
+after-fact
+(restore n)
+(restore continue)
+(assign val (op *) (reg n) (reg val))
+(goto (reg continue))
+fact-done
+(perform (op print-stack-statistics))
+(total-pushes = 2 maximum-depth = 2)done
+> 
+|#
