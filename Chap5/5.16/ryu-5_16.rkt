@@ -67,7 +67,9 @@
         (stack (make-stack))
         (the-instruction-sequence '())
         ; 5.15
-        (instruction-count 0))
+        (instruction-count 0)
+        ; 5.16
+        (trace? false))
     (let ((the-ops
            (list (list 'initialize-stack
                        (lambda () (stack 'initialize)))
@@ -92,6 +94,13 @@
           (if (null? insts)
               'done
               (begin
+                ; 5.16 traceが#tなら実行前に命令を表示
+                (if trace?
+                    (begin
+                      (newline)
+                      (display (instruction-text (car insts)))))
+
+                
                 ; 5.15 実行するたびに++する
                 (set! instruction-count (+ instruction-count 1))
                 ((instruction-execution-proc (car insts)))
@@ -117,6 +126,11 @@
                  (display (list 'instruction-count: instruction-count))))
               ; 5.15 初期化
               ((eq? message 'reset-instruction-count) (set! instruction-count 0))
+
+              ; 5.16 トレース開始
+              ((eq? message 'trace-on) (set! trace? true))
+              ; 5.16 トレース停止
+              ((eq? message 'trace-off) (set! trace? false))
               
               (else (error "Unknown request -- MACHINE" message))))
       dispatch)))
@@ -475,23 +489,33 @@
     (perform (op print-stack-statistics)) ;; 統計量を表示
   )))
 
-(set-register-contents! fact-machine 'n 1)
-(start fact-machine)
-(fact-machine 'print-instruction-count)
-(fact-machine 'reset-instruction-count)
+(fact-machine 'trace-on)
 
 (set-register-contents! fact-machine 'n 2)
 (start fact-machine)
-(fact-machine 'print-instruction-count)
 
 #|
-(total-pushes = 0 maximum-depth = 0)done
+done
 
-(instruction-count: 7)done
-
+(perform (op initialize-stack))
+(assign continue (label fact-done))
+(test (op =) (reg n) (const 1))
+(branch (label base-case))
+(save continue)
+(save n)
+(assign n (op -) (reg n) (const 1))
+(assign continue (label after-fact))
+(goto (label fact-loop))
+(test (op =) (reg n) (const 1))
+(branch (label base-case))
+(assign val (const 1))
+(goto (reg continue))
+(restore n)
+(restore continue)
+(assign val (op *) (reg n) (reg val))
+(goto (reg continue))
+(perform (op print-stack-statistics))
 (total-pushes = 2 maximum-depth = 2)done
-
-(instruction-count: 18)
 |#
 
 
