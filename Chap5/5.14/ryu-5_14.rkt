@@ -68,7 +68,9 @@
         (the-instruction-sequence '()))
     (let ((the-ops
            (list (list 'initialize-stack
-                       (lambda () (stack 'initialize)))))
+                       (lambda () (stack 'initialize)))
+                 (list 'print-stack-statistics
+                       (lambda () (stack 'print-statistics)))))
           (register-table
            (list (list 'pc pc) (list 'flag flag))))
       (define (allocate-register name)
@@ -438,6 +440,7 @@
     '(continue val n)
     (list (list '= =) (list '- -) (list '* *))
     '(start
+       (perform (op initialize-stack)) ;; 5.14 初期化
        (assign continue (label fact-done))
   fact-loop
     (test (op =) (reg n) (const 1))
@@ -455,9 +458,48 @@
   base-case
     (assign val (const 1))
     (goto (reg continue))
-  fact-done)))
+  fact-done
+    (perform (op print-stack-statistics)) ;; 統計量を表示
+  )))
+
+(set-register-contents! fact-machine 'n 1)
+(start fact-machine)
 
 (set-register-contents! fact-machine 'n 2)
 (start fact-machine)
 
-; 2
+(set-register-contents! fact-machine 'n 3)
+(start fact-machine)
+
+(set-register-contents! fact-machine 'n 4)
+(start fact-machine)
+
+(set-register-contents! fact-machine 'n 5)
+(start fact-machine)
+
+
+#|
+Welcome to DrRacket, version 8.12 [cs].
+Language: sicp, with debugging; memory limit: 128 MB.
+done
+
+(total-pushes = 0 maximum-depth = 0)done
+done
+
+(total-pushes = 2 maximum-depth = 2)done
+done
+
+(total-pushes = 4 maximum-depth = 4)done
+done
+
+(total-pushes = 6 maximum-depth = 6)done
+done
+
+(total-pushes = 8 maximum-depth = 8)done
+>
+
+factはpushesもdepthも 2*(n-1)になる。
+これは、1度再帰をするたびに2回saveしている
+(save continue)
+(save n)
+|#
