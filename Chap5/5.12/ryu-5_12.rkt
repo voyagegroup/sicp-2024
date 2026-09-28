@@ -68,7 +68,69 @@
            (list (list 'initialize-stack
                        (lambda () (stack 'initialize)))))
           (register-table
-           (list (list 'pc pc) (list 'flag flag))))
+           (list (list 'pc pc) (list 'flag flag)))
+          ; 5.12 命令を一覧に追加
+          (instruction-list '())
+          ; 5.12 gotoで入口を保持するレジスタ
+          (entry-register-list '())
+          ; 5.12 save/restoreされるレジスタ
+          (stack-register-list '())
+          ; 5.12 各レジスタへの代入元
+          (register-source-list '()))
+
+      ;; 5.12 命令を一覧に追加
+      ; memo: instは '(assign x (const 1)) という形式
+      (define (add-instruction inst)
+        (let ((type (car inst)))
+          (let ((entry (assoc type instruction-list)))
+            (if entry
+                (if (member inst (cdr entry))
+                    'already-exists ; 登録ずみ
+                    (set-cdr! entry
+                              (cons inst (cdr entry))))
+                ; 命令が存在しない
+                (set! instruction-list
+                      (cons (list type inst)
+                            instruction-list))))))
+
+      ;; 5.12 gotoで参照されるレジスタを追加
+      (define (add-entry-register inst)
+        (if (eq? (car inst) 'goto)
+            (let ((dest (goto-dest inst)))
+              (if (register-exp? dest)
+                  (let ((reg-name (register-exp-reg dest)))
+                    (if (member reg-name entry-register-list)
+                        'already-exists
+                        (set! entry-register-list
+                              (cons reg-name entry-register-list))))))))
+
+      ;; 5.12 save/restore
+      (define (add-stack-register inst)
+        (if (or (eq? (car inst) 'save)
+                (eq? (car inst) 'restore))
+
+            (let ((reg-name (stack-inst-reg-name inst)))
+              (if (member reg-name stack-register-list)
+                  'already-exists
+                  (set! stack-register-list
+                        (cons reg-name stack-register-list))))))
+
+      ;; 5.12 各レジスタへの代入元
+      (define (add-register-source inst)
+        (if (eq? (car inst) 'assign)
+            (let ((reg-name (assign-reg-name inst))
+                  (source (assign-value-exp inst)))
+              (let ((entry (assoc reg-name register-source-list )))
+                (if entry
+                    (if (member source (cdr entry)) ;; 同じ代入元は追加しない
+                        'already-exists
+                        (set-cdr! entry (cons source (cdr entry))))
+
+                    ; まだ未登録
+                    (set! register-source-list
+                          (cons (list reg-name source)
+                                register-source-list)))))))
+      
       (define (allocate-register name)
         (if (assoc name register-table)
             (error "Multiply define register: " name)
@@ -101,6 +163,17 @@
                (lambda (ops) (set! the-ops (append the-ops ops))))
               ((eq? message 'stack) stack)
               ((eq? message 'operations) the-ops)
+
+              ; 5.12
+              ((eq? message 'add-instruction) add-instruction)
+              ((eq? message 'instruction-list) instruction-list)
+              ((eq? message 'add-entry-register) add-entry-register)
+              ((eq? message 'entry-register-list) entry-register-list)
+              ((eq? message 'add-stack-register) add-stack-register)
+              ((eq? message 'stack-register-list) stack-register-list)
+              ((eq? message 'add-register-source) add-register-source)
+              ((eq? message 'register-source-list) register-source-list)
+               
               (else (error "Unknown request -- MACHINE" message))))
       dispatch)))
 
@@ -158,6 +231,8 @@
                                              labels)))
                               (receive (cons (make-instruction next-inst) insts)
                                        labels)))))))
+
+
 ; update-insts!は, 最初命令の文書を持っていただけの命令リストを, 対応する実行手続きを含むように修正する:
 (define (update-insts! insts labels machine)
   (let ((pc (get-register machine 'pc))
@@ -166,12 +241,18 @@
         (ops (machine 'operations)))
     (for-each
      (lambda (inst)
+       ((machine 'add-instruction) (instruction-text inst)) ;; 5.12 命令の型ごとの一覧
+       ((machine 'add-entry-register) (instruction-text inst)) ;; 5.12 gotoで参照されるレジスタ
+       ((machine 'add-stack-register) (instruction-text inst)) ;; 5.12 save/restore
+       ((machine 'add-register-source) (instruction-text inst)) ;; 5.12 各レジスタ
+       
        (set-instruction-execution-proc!
         inst
         (make-execution-procedure
          (instruction-text inst) labels machine
          pc flag stack ops)))
      insts)))
+
 
 (define (make-instruction text)
   (cons text '()))
@@ -431,26 +512,102 @@
 |#
 
 
-; 5.1.1節のGCD計算機のモデルである gcd-machineを次のように定義する.
-(define gcd-machine
+#|
+5.11
+
+以下のようなcontrollerがあるとする
+'((assign n (const 1))
+  (assign val (const 1))
+  (save n)
+  (goto (reg continue)))
+
+• (assign, gotoなどの)命令の型で, 格納されたすべての(異なる)命令のリスト;
+以下のような分類をする
+assign:
+  (assign n (const 1))
+  (assign val (const 1))
+save:
+  (save n)
+goto:
+  (goto (reg continue))
+
+
+• 入り口を保持するのに使った(異る)レジスタのリスト (goto命令の参照するレジスタである.);
+(goto reg continue))
+は
+'(continue)
+
+• save, restoreされる(異る)レジスタのリスト;
+(save n)
+(save continue)
+(restore n)
+(restore continue)
+は、(異なる)なので
+'(n continue)
+
+
+• 各レジスタに対し, (異る)代入元のリスト(例えば図5.11の階乗計算機で, レジスタvalの元は(const 1)と((op *) (reg n) (reg val))である.)
+valについて、(const 1) ((op * ...)) を記録する
+|#
+
+(define fib-machine
   (make-machine
-   '(a b t)
-   (list (list 'rem remainder) (list '= =))
-   '(test-b
-     (test (op =) (reg b) (const 0))
-     (branch (label gcd-done))
-     (assign t (op rem) (reg a) (reg b))
-     (assign a (reg b))
-     (assign b (reg t))
-     (goto (label test-b))
-   gcd-done)))
+    '(continue val n)
+    (list (list '< <) (list '- -) (list '+ +))
+    '(start
+       (assign continue (label fib-done))
+  fib-loop
+    (test (op <) (reg n) (const 2))
+    (branch (label immediate-answer))
+    (save continue)
+    (assign continue (label afterfib-n-1))
+    (save n)
+    (assign n (op -) (reg n) (const 1))
+    (goto (label fib-loop))
+  afterfib-n-1
+    (restore n)
+    (restore continue)
+    (assign n (op -) (reg n) (const 2))
+    (save continue)
+    (assign continue (label afterfib-n-2))
+    (save val)
+    (goto (label fib-loop))
+  afterfib-n-2
+    (assign n (reg val))
+    (restore val)
+    (restore continue)
+    (assign val (op +) (reg val) (reg n))
+    (goto (reg continue))
+  immediate-answer
+    (assign val (reg n))
+    (goto (reg continue))
+  fib-done)))
 
-(set-register-contents! gcd-machine 'a 206)
 
-(set-register-contents! gcd-machine 'b 40)
 
-(start gcd-machine)
+(display (fib-machine 'instruction-list))
+(newline)
 
-(get-register-contents gcd-machine 'a)
 
-; 2
+(display (fib-machine 'entry-register-list))
+(newline)
+
+
+(display (fib-machine 'stack-register-list))
+(newline)
+
+
+(display (fib-machine 'register-source-list))
+(newline)
+
+
+#|
+((restore (restore val) (restore continue) (restore n)) (goto (goto (reg continue)) (goto (label fib-loop))) (save (save val) (save n) (save continue)) (branch (branch (label immediate-answer))) (test (test (op <) (reg n) (const 2))) (assign (assign val (reg n)) (assign val (op +) (reg val) (reg n)) (assign n (reg val)) (assign continue (label afterfib-n-2)) (assign n (op -) (reg n) (const 2)) (assign n (op -) (reg n) (const 1)) (assign continue (label afterfib-n-1)) (assign continue (label fib-done))))
+(continue)
+(val n continue)
+((val ((reg n)) ((op +) (reg val) (reg n))) (n ((reg val)) ((op -) (reg n) (const 2)) ((op -) (reg n) (const 1))) (continue ((label afterfib-n-2)) ((label afterfib-n-1)) ((label fib-done))))
+|#
+
+
+
+
