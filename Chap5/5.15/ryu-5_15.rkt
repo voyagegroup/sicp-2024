@@ -65,7 +65,9 @@
   (let ((pc (make-register 'pc))
         (flag (make-register 'flag))
         (stack (make-stack))
-        (the-instruction-sequence '()))
+        (the-instruction-sequence '())
+        ; 5.15
+        (instruction-count 0))
     (let ((the-ops
            (list (list 'initialize-stack
                        (lambda () (stack 'initialize)))
@@ -90,6 +92,8 @@
           (if (null? insts)
               'done
               (begin
+                ; 5.15 実行するたびに++する
+                (set! instruction-count (+ instruction-count 1))
                 ((instruction-execution-proc (car insts)))
                 (execute)))))
 
@@ -105,6 +109,15 @@
                (lambda (ops) (set! the-ops (append the-ops ops))))
               ((eq? message 'stack) stack)
               ((eq? message 'operations) the-ops)
+
+              ; 5.15
+              ((eq? message 'print-instruction-count)
+               (begin
+                 (newline)
+                 (display (list 'instruction-count: instruction-count))))
+              ; 5.15 初期化
+              ((eq? message 'reset-instruction-count) (set! instruction-count 0))
+              
               (else (error "Unknown request -- MACHINE" message))))
       dispatch)))
 
@@ -464,17 +477,21 @@
 
 (set-register-contents! fact-machine 'n 1)
 (start fact-machine)
+(fact-machine 'print-instruction-count)
+(fact-machine 'reset-instruction-count)
 
 (set-register-contents! fact-machine 'n 2)
 (start fact-machine)
+(fact-machine 'print-instruction-count)
 
-(set-register-contents! fact-machine 'n 3)
-(start fact-machine)
+#|
+(total-pushes = 0 maximum-depth = 0)done
 
-(set-register-contents! fact-machine 'n 4)
-(start fact-machine)
+(instruction-count: 7)done
 
-(set-register-contents! fact-machine 'n 5)
-(start fact-machine)
+(total-pushes = 2 maximum-depth = 2)done
 
+(instruction-count: 18)
 |#
+
+
