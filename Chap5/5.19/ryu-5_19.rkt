@@ -89,7 +89,9 @@
         ; 5.15
         (instruction-count 0)
         ; 5.16
-        (trace? false))
+        (trace? false)
+        ; 5.19
+        (breakpoints '()))
     (let ((the-ops
            (list (list 'initialize-stack
                        (lambda () (stack 'initialize)))
@@ -109,26 +111,96 @@
           (if val
               (cadr val)
               (error "Unknown register:" name))))
+
+      ; 5.19 ブレークポイントを追加
+      (define (add-breakpoint label n)
+        (let ((breakpoint (list label n)))
+          (if (member breakpoint breakpoints)
+              'already-exists
+              (set! breakpoints (cons breakpoint breakpoints)))))
+
+      ; 5.19 ブレークポイントを削除
+      (define (remove-breakpoint label n)
+        (let ((target (list label n)))
+          (define (remove breakpoints)
+            (cond ((null? breakpoints) '())
+                  ((equal? target (car breakpoints)) (cdr breakpoints))
+                  (else
+                   (cons (car breakpoints) (remove (cdr breakpoints))))))
+
+          (set! breakpoints (remove breakpoints))
+          'done))
+
+      ; 5.19 すべてのブレークポイントを削除
+      (define (remove-all-breakpoints)
+        (set! breakpoints '())
+        'done)
+
+      ; 5.19 ブレークポイントの命令かどうか
+      (define (breakpoint? inst)
+        (member
+         (list (instruction-label inst)
+               (instruction-offset inst))
+         breakpoints))
+
+      ; 5.19 命令を1つ実行する
+      (define (execute-current inst)
+        ; 5.19のデバッグ
+        (newline)
+        (display
+         (list 'debug
+               (instruction-label inst)
+               (instruction-offset inst)
+               (instruction-text  inst)))
+        (newline)
+                 
+        ; 5.16 traceが#tなら実行前に命令を表示
+        (if trace?
+            (begin
+              ;; 5.17 ラベルがあれば表示
+              (if (and (not (null? (instruction-label inst)))
+                       (= (instruction-offset inst) 1)) ; offset が1の時だけ表示させるようにした
+                  (begin
+                    (newline)
+                    (display (instruction-label inst))))
+              (newline)
+              (display (instruction-text inst))))
+
+                
+        ; 5.15 実行するたびに++する
+        (set! instruction-count (+ instruction-count 1))
+        ((instruction-execution-proc inst)))
+      
+      
       (define (execute)
         (let ((insts (get-contents pc)))
           (if (null? insts)
               'done
-              (begin
-                ; 5.16 traceが#tなら実行前に命令を表示
-                (if trace?
-                    (begin
-                      ;; 5.17 ラベルがあれば表示
-                      (if (not (null? (instruction-label (car insts))))
-                          (begin
-                            (newline)
-                            (display (instruction-label (car insts)))))
-                      (newline)
-                      (display (instruction-text (car insts)))))
 
-                
-                ; 5.15 実行するたびに++する
-                (set! instruction-count (+ instruction-count 1))
-                ((instruction-execution-proc (car insts)))
+              ; 5.19 breakpoint
+              (if (breakpoint? (car insts))
+                  (begin
+                    (newline)
+                    (display
+                     (list 'breakpoint:
+                           (instruction-label (car insts))
+                           (instruction-offset (car insts))))
+                    (newline)
+                    'breakpoint)
+              
+                  (begin
+                    (execute-current (car insts))
+                    (execute))))))
+
+      ; 5.19 breakpointから実行を再開
+      (define (proceed)
+        (let ((insts (get-contents pc)))
+          (if (null? insts)
+              'done
+              (begin
+                ; 現在の命令の分だけbreakpointを判定しないで実行して、
+                (execute-current (car insts))
+                ; 続きを実行
                 (execute)))))
 
       (define (dispatch message)
@@ -156,6 +228,22 @@
               ((eq? message 'trace-on) (set! trace? true))
               ; 5.16 トレース停止
               ((eq? message 'trace-off) (set! trace? false))
+
+              ; 5.19 ブレークポイントを設定
+              ((eq? message 'set-breakpoint)
+               add-breakpoint)
+
+              ; 5.19 ブレークポイントから再開
+              ((eq? message 'proceed)
+               (proceed))
+
+              ; 5.19 指定したブレークポイントを削除
+              ((eq? message 'cancel-breakpoint)
+               remove-breakpoint)
+
+              ; 5.19 すべてのブレークポイントを削除
+              ((eq? message 'cancel-all-breakpoints)
+               (remove-all-breakpoints))
               
               (else (error "Unknown request -- MACHINE" message))))
       dispatch)))
@@ -185,6 +273,22 @@
   ((get-register machine reg-name) 'trace-on))
 (define (trace-register-off machine reg-name)
   ((get-register machine reg-name) 'trace-off))
+
+; 5.19 breakpoints
+(define (set-breakpoint machine label n)
+  ((machine 'set-breakpoint) label n))
+
+; 5.19 breakpointから再開
+(define (proceed-machine machine)
+  (machine 'proceed))
+
+; 5.19 指定したbreakpointを削除
+(define (cancel-breakpoint machine label n)
+  ((machine 'cancel-breakpoint) label n))
+
+; 5.19 すべてのbreakpointを削除
+(define (cancel-all-breakpoints machine)
+  (machine 'cancel-all-breakpoints))
 
 ; 5.2.2 アセンブラ
 
@@ -216,9 +320,9 @@
                               (if (assoc next-inst labels) ; 5.8
                                   (error "exist same label:" next-inst)
                                   (begin
-                                    ; 5.17 命令ラベルを保存
+                                    ; 5.19 現在のラベルから次のラベルまでのラベルと距離を保存
                                     (if (not (null? insts))
-                                        (set-instruction-label! (car insts) next-inst))
+                                        (set-instruction-positions! insts next-inst))
                                     (receive insts
                                              (cons (make-label-entry next-inst insts)
                                                    labels))))
@@ -240,8 +344,8 @@
      insts)))
 
 (define (make-instruction text)
-  ; 5.17 ラベルをもたせる
-  (list text '() '())) 
+  ; 5.17 ラベルをもたせる ; 5.19 ラベルからの距離をもたせる
+  (list text '() '() '()))  ; (list 命令 ラベル ラベルからの距離 手続き)
 
 (define (instruction-text inst)
   (car inst))
@@ -250,15 +354,38 @@
 (define (instruction-label inst)
   (cadr inst))
 
-(define (instruction-execution-proc inst)
+; 5.19 距離の選択肢
+(define (instruction-offset inst)
   (caddr inst))
 
+(define (instruction-execution-proc inst)
+  (cadddr inst))
+
 (define (set-instruction-execution-proc! inst proc)
-  (set-car! (cddr inst) proc))
+  (set-car! (cdddr inst) proc))
 
 ; 5.17 命令ラベルを設定
 (define (set-instruction-label! inst label)
   (set-car! (cdr inst) label))
+
+; 5.19 ラベルからの距離を設定
+(define (set-instruction-offset! inst offset)
+  (set-car! (cddr inst) offset))
+
+; 5.19 ラベルを見つけたら次のラベルまで全部に距離を設定する
+(define (set-instruction-positions! insts label)
+  (define (iter insts n)
+    (if (null? insts)
+        'done
+        (let ((inst (car insts)))
+          ; ラベルがついていたら、次のラベルになっているので終わり
+          (if (not (null? (instruction-label inst)))
+              'done
+              (begin
+                (set-instruction-label! inst label)
+                (set-instruction-offset! inst n)
+                (iter (cdr insts) (+ n 1)))))))
+  (iter insts 1))
 
 (define (make-label-entry label-name insts)
   (cons label-name insts))
@@ -533,3 +660,18 @@
     (perform (op print-stack-statistics)) ;; 統計量を表示
   )))
 
+(fact-machine 'trace-on)
+
+(set-register-contents! fact-machine 'n 2)
+
+(set-breakpoint fact-machine 'fact-loop 4)
+(set-breakpoint fact-machine 'after-fact 2)
+
+; (cancel-breakpoint fact-machine 'fact-loop 4)
+; (cancel-all-breakpoints fact-machine)
+
+(start fact-machine)
+
+
+; (proceed-machine fact-machine)
+; (proceed-machine fact-machine)
