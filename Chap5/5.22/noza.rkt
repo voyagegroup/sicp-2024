@@ -500,102 +500,101 @@
         (cadr val)
         (error "Unknown operation -- ASSEMBLE" symbol))))
 
-; 5.21 解答
-; a. 再帰的な count-leaves
-(define count-leaves-recursive-machine
+; 5.22 解答
+; append は第1引数の各対を新しく作り、第2引数を末尾として共有する。
+(define append-machine
   (make-machine
-   '(tree val continue temp)
+   '(x y val continue temp)
    (list (list 'null? null?)
-         (list 'pair? pair?)
          (list 'car car)
          (list 'cdr cdr)
-         (list '+ +))
+         (list 'cons cons))
    '(controller
        (assign continue (label done))
 
-     count-leaves
-       (test (op null?) (reg tree))
-       (branch (label empty-tree))
-       (test (op pair?) (reg tree))
-       (branch (label pair-tree))
-       (assign val (const 1))
-       (goto (reg continue))
-
-     empty-tree
-       (assign val (const 0))
-       (goto (reg continue))
-
-     pair-tree
+     append-loop
+       (test (op null?) (reg x))
+       (branch (label append-base))
        (save continue)
-       (save tree)
-       (assign tree (op car) (reg tree))
-       (assign continue (label after-car))
-       (goto (label count-leaves))
+       (save x)
+       (assign x (op cdr) (reg x))
+       (assign continue (label after-append))
+       (goto (label append-loop))
 
-     after-car
-       (restore tree)
-       (save val)
-       (assign tree (op cdr) (reg tree))
-       (assign continue (label after-cdr))
-       (goto (label count-leaves))
-
-     after-cdr
-       (restore temp)
+     after-append
+       (restore x)
        (restore continue)
-       (assign val (op +) (reg temp) (reg val))
+       (assign temp (op car) (reg x))
+       (assign val (op cons) (reg temp) (reg val))
+       (goto (reg continue))
+
+     append-base
+       (assign val (reg y))
        (goto (reg continue))
 
      done)))
 
-; b. 明示的なカウンタを持つ count-leaves
-(define count-leaves-iterative-machine
+; append! は第1引数の末尾対の cdr を第2引数に付け替える。
+; 第1引数は空でないリストを前提とする。
+(define append!-machine
   (make-machine
-   '(tree n val continue)
+   '(x y val continue last next)
    (list (list 'null? null?)
-         (list 'pair? pair?)
-         (list 'car car)
          (list 'cdr cdr)
-         (list '+ +))
+         (list 'set-cdr! set-cdr!))
    '(controller
-       (assign n (const 0))
        (assign continue (label done))
-       (goto (label count-iter))
+       (assign last (reg x))
 
-     count-iter
-       (test (op null?) (reg tree))
-       (branch (label empty-tree))
-       (test (op pair?) (reg tree))
-       (branch (label pair-tree))
-       (assign n (op +) (reg n) (const 1))
+     find-last-pair
+       (assign next (op cdr) (reg last))
+       (test (op null?) (reg next))
+       (branch (label last-pair-found))
+       (assign last (reg next))
+       (goto (label find-last-pair))
+
+     last-pair-found
+       (perform (op set-cdr!) (reg last) (reg y))
+       (assign val (reg x))
        (goto (reg continue))
 
-     empty-tree
-       (goto (reg continue))
+     done)))
 
-     pair-tree
-       (save continue)
-       (save tree)
-       (assign tree (op car) (reg tree))
-       (assign continue (label after-car))
-       (goto (label count-iter))
+; 以下は AI で生成してもらったテスト
+(define (check-equal name actual expected)
+  (if (equal? actual expected)
+      (begin
+        (display name)
+        (display ": ok")
+        (newline))
+      (error "Test failed" name actual expected)))
 
-     after-car
-       (restore tree)
-       (restore continue)
-       (assign tree (op cdr) (reg tree))
-       (goto (label count-iter))
+(define (check-true name actual)
+  (if actual
+      (begin
+        (display name)
+        (display ": ok")
+        (newline))
+      (error "Test failed" name)))
 
-     done
-       (assign val (reg n)))))
+(let ((x (list 1 2 3))
+      (y (list 4 5)))
+  (set-register-contents! append-machine 'x x)
+  (set-register-contents! append-machine 'y y)
+  (start append-machine)
+  (check-equal 'append-result
+               (get-register-contents append-machine 'val)
+               '(1 2 3 4 5))
+  (check-equal 'append-keeps-x x '(1 2 3)))
 
-(define (run-count-leaves-test name machine tree)
-  (set-register-contents! machine 'tree tree)
-  (start machine))
-
-(define test-tree '((1 2) (3 (4 . 5)) () 6))
-
-(run-count-leaves-test 'recursive
-                       count-leaves-recursive-machine test-tree)
-(run-count-leaves-test 'iterative
-                       count-leaves-iterative-machine test-tree)
+(let ((x (list 1 2 3))
+      (y (list 4 5)))
+  (set-register-contents! append!-machine 'x x)
+  (set-register-contents! append!-machine 'y y)
+  (start append!-machine)
+  (check-equal 'append!-result
+               (get-register-contents append!-machine 'val)
+               '(1 2 3 4 5))
+  (check-equal 'append!-mutates-x x '(1 2 3 4 5))
+  (check-true 'append!-shares-y (eq? (cdr (cdr (cdr x))) y)))
 ; ここまで
