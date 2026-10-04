@@ -16,11 +16,31 @@
 ; レジスタ
 ; 手続きmake-registerはアクセスしたり, 変更したり出来る値を保持するレジスタを作り出す:
 (define (make-register name)
-  (let ((contents '*unassigned*))
+  (let ((contents '*unassigned*)
+        (trace? false)) ; 5.18 フラグを追加
     (define (dispatch message)
       (cond ((eq? message 'get) contents)
             ((eq? message 'set)
-             (lambda (value) (set! contents value)))
+             (lambda (value)
+               ; 5.18 前後を表示
+               (if trace?
+                   (begin
+                     (newline)
+                     (display
+                      (list 'register name
+                            'old contents
+                            'new value))))
+               
+               (set! contents value)))
+
+            ; traceのメッセージパッシング
+            ((eq? message 'trace-on)
+             (set! trace? true))
+            ((eq? message 'trace-off)
+             (set! trace? false))
+            
+
+            
             (else (error "unknown request -- REGISTER" message))))
     dispatch))
 
@@ -159,6 +179,12 @@
 
 (define (get-register machine reg-name)
   ((machine 'get-register) reg-name))
+
+; 5.18 トレース
+(define (trace-register-on machine reg-name)
+  ((get-register machine reg-name) 'trace-on))
+(define (trace-register-off machine reg-name)
+  ((get-register machine reg-name) 'trace-off))
 
 ; 5.2.2 アセンブラ
 
@@ -507,7 +533,18 @@
     (perform (op print-stack-statistics)) ;; 統計量を表示
   )))
 
-(fact-machine 'trace-on)
+
+; (fact-machine 'trace-on)
+(trace-register-on fact-machine 'n) ; 5.18
 
 (set-register-contents! fact-machine 'n 2)
 (start fact-machine)
+
+#|
+(register n old *unassigned* new 2)done
+
+(register n old 2 new 1)
+(register n old 1 new 2)
+(total-pushes = 2 maximum-depth = 2)done
+> 
+|#
