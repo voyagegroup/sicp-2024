@@ -102,7 +102,12 @@
         (stack (make-stack))
         (the-instruction-sequence '())
         (instruction-count 0)
-        (trace-enabled false)) ; 5.16 解答
+        (trace-enabled false) ; 5.16 解答
+        ; 5.19 解答
+        (labels '())
+        (breakpoints '())
+        (stopped-at-breakpoint false))
+        ; ここまで
     (let ((the-ops
            (list (list 'initialize-stack
             (lambda () (stack 'initialize)))
@@ -122,30 +127,85 @@
           (if val
               (cadr val)
               (error "Unknown register:" name))))
+      ; 5.19 解答
+      (define (nth-instruction insts offset)
+        (cond ((< offset 0)
+               (error "Breakpoint offset must be non-negative" offset))
+              ((null? insts)
+               (error "Breakpoint offset exceeds instruction sequence" offset))
+              ((= offset 0) (car insts))
+              (else (nth-instruction (cdr insts) (- offset 1)))))
+      (define (breakpoint-instruction label offset)
+        (nth-instruction (lookup-label labels label) offset))
+      (define (breakpoint? inst)
+        (memq inst breakpoints))
+      (define (remove-breakpoint inst breakpoints)
+        (cond ((null? breakpoints) '())
+              ((eq? inst (car breakpoints))
+               (remove-breakpoint inst (cdr breakpoints)))
+              (else
+               (cons (car breakpoints)
+                     (remove-breakpoint inst (cdr breakpoints))))))
+      (define (execute-instruction inst)
+        (set! instruction-count (+ instruction-count 1)) ; 5.15 解答
+        ; 5.17 解答
+        (cond (trace-enabled
+               (for-each
+                (lambda (label)
+                  (display label)
+                  (newline))
+                (instruction-labels inst))
+               (display (instruction-text inst))
+               (newline)))
+        ; ここまで
+        ((instruction-execution-proc inst)))
+      (define (proceed)
+        (if stopped-at-breakpoint
+            (begin
+              (set! stopped-at-breakpoint false)
+              (execute-instruction (car (get-contents pc)))
+              (execute))
+            (error "Machine is not stopped at a breakpoint -- PROCEED")))
+      ; ここまで
       (define (execute)
         (let ((insts (get-contents pc)))
           (if (null? insts)
               'done
-              (begin
-                (set! instruction-count (+ instruction-count 1)) ; 5.15 解答
-                ; 5.17 解答
-                (cond (trace-enabled
-                       (for-each
-                        (lambda (label)
-                          (display label)
-                          (newline))
-                        (instruction-labels (car insts)))
-                       (display (instruction-text (car insts)))
-                       (newline)))
-                ; ここまで
-                ((instruction-execution-proc (car insts)))
-                (execute)))))
+              ; 5.19 解答
+              (if (breakpoint? (car insts))
+                  (begin
+                    (set! stopped-at-breakpoint true)
+                    'breakpoint)
+                  (begin
+                    (execute-instruction (car insts))
+                    (execute))))))
+              ; ここまで
       (define (dispatch message)
         (cond ((eq? message 'start)
                (set-contents! pc the-instruction-sequence)
+               (set! stopped-at-breakpoint false); 5.19 解答
                (execute))
               ((eq? message 'install-instruction-sequence)
                (lambda (seq) (set! the-instruction-sequence seq)))
+              ; 5.19 解答
+              ((eq? message 'install-labels)
+               (lambda (new-labels) (set! labels new-labels)))
+              ((eq? message 'proceed) (proceed))
+              ((eq? message 'set-breakpoint)
+               (lambda (label offset)
+                 (let ((inst (breakpoint-instruction label offset)))
+                   (if (not (breakpoint? inst))
+                       (set! breakpoints (cons inst breakpoints))
+                       'done))))
+              ((eq? message 'cancel-breakpoint)
+               (lambda (label offset)
+                 (set! breakpoints
+                       (remove-breakpoint
+                        (breakpoint-instruction label offset)
+                        breakpoints))))
+              ((eq? message 'cancel-all-breakpoints)
+               (set! breakpoints '()))
+              ; ここまで
               ((eq? message 'allocate-register) allocate-register)
               ((eq? message 'get-register) lookup-register)
               ((eq? message 'install-operations)
@@ -192,6 +252,7 @@
   (extract-labels controller-text
                   (lambda (insts labels)
                     (update-insts! insts labels machine)
+                    ((machine 'install-labels) labels) ; 5.19 解答
                     insts)))
 
 ; 5.8解答: ラベルの追加直前にすでにラベルがないかを調査する
