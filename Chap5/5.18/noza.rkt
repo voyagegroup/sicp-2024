@@ -18,11 +18,27 @@
 ; レジスタ
 
 (define (make-register name)
-  (let ((contents '*unassigned*))
+  ; 5.18 解答
+  (let ((contents '*unassigned*)
+        (trace-enabled false))
+    ; ここまで
     (define (dispatch message)
       (cond ((eq? message 'get) contents)
             ((eq? message 'set)
-             (lambda (value) (set! contents value)))
+             ; 5.18 解答
+             (lambda (value)
+               (if trace-enabled
+                   (begin
+                     (display (list name contents value))
+                     (newline))
+                   'done)
+               (set! contents value)))
+            ((eq? message 'trace-on)
+             ; 5.18 解答
+             (set! trace-enabled true))
+            ((eq? message 'trace-off)
+             (set! trace-enabled false))
+             ; ここまで
             (else
              (error "Unknown request -- REGISTER" message))))
     dispatch))
@@ -147,6 +163,14 @@
                (set! trace-enabled true))
               ((eq? message 'trace-off)
                (set! trace-enabled false))
+              ; ここまで
+              ; 5.18 解答
+              ((eq? message 'trace-register)
+               (lambda (register-name)
+                 ((lookup-register register-name) 'trace-on)))
+              ((eq? message 'untrace-register)
+               (lambda (register-name)
+                 ((lookup-register register-name) 'trace-off)))
               ; ここまで
               (else (error "Unknown request -- MACHINE" message))))
       dispatch)))
