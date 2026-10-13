@@ -1,91 +1,87 @@
 #lang sicp
 
-; a. 再帰的count-leaves:
-(define (count-leaves tree)
-  (cond ((null? tree) 0)
-        ((not (pair? tree)) 1)
-        (else (+ (count-leaves (car tree))
-                 (count-leaves (cdr tree))))))
-
-(count-leaves (list 1 2 3 (cons 2 3)))
-; → 5
-
-
-(define count-leaves-machine-a
+(define append-machine
   (make-machine
-   '(continue tree val tmp)
-   (list (list 'null? null?) (list 'pair? pair?) (list 'car car) (list 'cdr cdr) (list '+ +))
+   '(x y val continue)
+   (list (list 'null? null?)
+         (list 'car car)
+         (list 'cdr cdr)
+         (list 'cons cons))
    '(start
-       (assign continue (label count-done))
-   count-loop
-     (test (op null?) (reg tree))
-     (branch (label null-case))
-     (test (op pair?) (reg tree)) ; pairじゃない場合は葉
-     (branch (label pair-case)) ; pairの場合はpairのcaseへ
-     (assign val (const 1))
-     (goto (reg continue))
-   null-case
-     (assign val (const 0))
-     (goto (reg continue))
-   pair-case
+     (assign continue (label append-done))
+   append-loop
+     (test (op null?) (reg x))
+     (branch (label base-case))
+
+     ; 再帰
      (save continue)
-     (save tree)
-     (assign tree (op car) (reg tree))
-     (assign continue (label after-car))
-     (goto (label count-loop))
-   after-car
-     (restore tree)
-     (restore continue)
-     (save continue) ; cdrの再帰でcontinueを上書きしてしまうので退避
-     (save val)
-     (assign tree (op cdr) (reg tree))
-     (assign continue (label after-cdr))
-     (goto (label count-loop))
-   after-cdr
-     (assign tmp (reg val)) ; valにcdrの結果が入っているので退避
-     (restore val) ; carの結果をrestore
-     (restore continue)
-     (assign val (op +) (reg val) (reg tmp))
+     (save x)
+     (assign x (op cdr) (reg x))
+     (assign continue (label after-append))
+     (goto (label append-loop))
+
+   base-case
+     (assign val (reg y))
      (goto (reg continue))
-   count-done)))
 
-(set-register-contents! count-leaves-machine-a 'tree (list 1 2 3 (cons 2 3)))
+   after-append
+     ; 再帰から戻った後
+     (restore x)
+     (restore continue)
+     (assign x (op car) (reg x))
+     (assign val (op cons) (reg x) (reg val))
+     (goto (reg continue))
+   append-done)))
 
-(count-leaves-machine-a 'trace-on)
+(set-register-contents! append-machine 'x '(1 2 3))
+(set-register-contents! append-machine 'y '(4 5))
 
-(start count-leaves-machine-a)
-(get-register-contents count-leaves-machine-a 'val)
+(start append-machine)
 
-; → 5
+(get-register-contents append-machine 'val)
+; (1 2 3 4 5)
 
-
-; b. カウンタを陽に持つ再帰的count-leaves:
-#|
-(define (count-leaves tree)
-  (define (count-iter tree n)
-    (cond ((null? tree) n)
-          ((not (pair? tree)) (+ n 1))
-          (else (count-iter (cdr tree)
-                            (count-iter (car tree) n)))))
-  (count-iter tree 0))
+;---- append! ---
 
 
-memo
+(define append!-machine
+  (make-machine
+   '(x y current tmp)
+   (list (list 'null? null?)
+         (list 'cdr cdr)
+         (list 'set-cdr! set-cdr!))
 
-(count-leaves (list (list 1 2 3) (list 5 8)))
-(count-iter ((list 5 8))
-            (count-iter (list 1 2 3) 0))
+   '(start
+     (assign current (reg x))
 
-(count-iter (list 1 2 3) 0)
-↓
-(count-iter ((list 2 3))
-            (count-iter  1 0))
+   append-loop
+     ; curentの次が空か確認
+     (assign tmp (op cdr) (reg current))
+     (test (op null?) (reg tmp))
+     (branch (label append-done))
 
-(count-iter 1 0)
-↓
-(+ 0 1)
+     ; 次のペア
+     (assign current (op cdr) (reg current))
+     (goto (label append-loop))
 
-(count-iter ((list 2 3)) 1)
-...
-|#
+   append-done
+     ; 最後のペアのcdrをyへ
+     (perform (op set-cdr!) (reg current) (reg y)))))
 
+
+(define x (list 1 2 3))
+
+(define y (list 4 5))
+
+(set-register-contents! append!-machine 'x x)
+
+(set-register-contents! append!-machine 'y y)
+
+(start append!-machine)
+
+(get-register-contents append!-machine 'x)
+
+; (1 2 3 4 5)
+
+x
+; (1 2 3 4 5) こっちも書き換わっているjkj
