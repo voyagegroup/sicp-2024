@@ -20,6 +20,8 @@
      (branch (label ev-definition))
      (test (op if?) (reg exp))
      (branch (label ev-if))
+     (test (op cond?) (reg exp)) ; 5.23
+     (branch (label ev-cond))
      (test (op lambda?) (reg exp))
      (branch (label ev-lambda))
      (test (op begin?) (reg exp))
@@ -173,6 +175,10 @@
      (assign continue (label ev-if-decide))
      (assign exp (op if-predicate) (reg exp))
      (goto (label eval-dispatch)); 述語を評価
+
+     ev-cond ; 5.23
+     (assign exp (op cond->if) (reg exp))
+     (goto (label eval-dispatch))
 
      ev-if-decide
      (restore continue)

@@ -188,6 +188,46 @@
              '<procedure-env>))
       (display object)))
 
+; 5.23 cond
+(define (cond? exp)
+  (tagged-list? exp 'cond))
+
+(define (cond-clauses exp)
+  (cdr exp))
+
+(define (cond-else-clause? clause)
+  (eq? (car clause) 'else))
+
+(define (cond-predicate clause)
+  (car clause))
+
+(define (cond-actions clause)
+  (cdr clause))
+
+(define (sequence->exp seq)
+  (cond ((null? seq) seq)
+        ((null? (cdr seq)) (car seq))
+        (else (cons 'begin seq))))
+
+(define (cond->if exp)
+  (expand-clauses (cond-clauses exp)))
+
+(define (expand-clauses clauses)
+  (if (null? clauses)
+      'false
+      (let ((first (car clauses))
+            (rest (cdr clauses)))
+        (if (cond-else-clause? first)
+            (if (null? rest)
+                (sequence->exp (cond-actions first))
+                (error "ELSE clause isn't last -- COND->IF"))
+            (list 'if
+                  (cond-predicate first)
+                  (sequence->exp (cond-actions first))
+                  (expand-clauses rest))))))
+
+; 5.23 cond
+
 ; --- eceval-operations
 
 (define eceval-operations
@@ -239,7 +279,10 @@
    (list 'read read)
    (list 'get-global-environment get-global-environment)
    (list 'announce-output announce-output)
-   (list 'user-print user-print)))
+   (list 'user-print user-print)
+   (list 'cond? cond?)
+   (list 'cond->if cond->if)
+   ))
 
 
 
