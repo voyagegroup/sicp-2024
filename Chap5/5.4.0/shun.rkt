@@ -1,93 +1,917 @@
-(define active-eval
+#lang sicp
+
+;; ============================================================
+;; 5.2: レジスタ計算機シミュレータ
+;; ============================================================
+
+(define (make-machine register-names ops controller-text)
+  (let ((machine (make-new-machine)))
+    (for-each (lambda (register-name)
+                ((machine 'allocate-register) register-name))
+              register-names)
+    ((machine 'install-operations) ops)
+    ((machine 'install-instruction-sequence)
+     (assemble controller-text machine))
+    machine))
+
+(define (make-register name)
+  (let ((contents '*unassigned*)
+        (tracing? #f))
+    (define (dispatch message)
+      (cond ((eq? message 'get) contents)
+            ((eq? message 'set)
+             (lambda (value)
+               (if tracing?
+                   (begin
+                     (display (list 'register name
+                                    'old contents
+                                    'new value))
+                     (newline)))
+               (set! contents value)))
+            ((eq? message 'trace-on)
+             (set! tracing? #t))
+            ((eq? message 'trace-off)
+             (set! tracing? #f))
+            (else
+             (error "Unknown request -- REGISTER" message))))
+    dispatch))
+
+(define (get-contents register)
+  (register 'get))
+
+(define (set-contents! register value)
+  ((register 'set) value))
+
+(define (make-stack)
+  (let ((s '()))
+    (define (push x)
+      (set! s (cons x s)))
+    (define (pop)
+      (if (null? s)
+          (error "Empty stack -- POP")
+          (let ((top (car s)))
+            (set! s (cdr s))
+            top)))
+    (define (initialize)
+      (set! s '())
+      'done)
+    (define (dispatch message)
+      (cond ((eq? message 'push) push)
+            ((eq? message 'pop) (pop))
+            ((eq? message 'initialize) (initialize))
+            (else (error "Unknown request --STACK"
+                         message))))
+    dispatch))
+
+(define (pop stack)
+  (stack 'pop))
+
+(define (push stack value)
+  ((stack 'push) value))
+
+(define (make-new-machine)
+  (let ((pc (make-register 'pc))
+        (flag (make-register 'flag))
+        (stack (make-stack))
+        (the-instruction-sequence '())
+        (instruction-count 0)
+        (tracing? #f)
+        (breakpoints '()))
+    (let ((the-ops
+           (list (list 'initialize-stack
+                       (lambda () (stack 'initialize)))))
+          (register-table
+           (list (list 'pc pc) (list 'flag flag))))
+      (define (allocate-register name)
+        (if (assoc name register-table)
+            (error "Multiply defined register: " name)
+            (set! register-table
+                  (cons (list name (make-register name))
+                        register-table)))
+        'register-allocated)
+      (define (lookup-register name)
+        (let ((val (assoc name register-table)))
+          (if val
+              (cadr val)
+              (error "Unknown register: " name))))
+      (define (breakpoint? inst)
+        (member
+         (cons (instruction-label inst)
+               (instruction-offset inst))
+         breakpoints))
+      (define (execute-current)
+        (let ((insts (get-contents pc)))
+          (set! instruction-count (+ instruction-count 1))
+          (if tracing?
+              (begin
+                (display (instruction-text (car insts)))
+                (newline)))
+          ((instruction-execution-proc (car insts)))))
+      (define (execute)
+        (let ((insts (get-contents pc)))
+          (cond ((null? insts) 'done)
+                ((breakpoint? (car insts)) 'breakpoint)
+                (else
+                 (execute-current)
+                 (execute)))))
+
+      ;; 現在の命令を実行してから通常実行に戻る
+      (define (proceed)
+        (if (null? (get-contents pc))
+            'done
+            (begin
+              (execute-current)
+              (execute))))
+      (define (add-breakpoint label n)
+        (set! breakpoints (cons (cons label n) breakpoints)))
+      (define (remove-breakpoint label n)
+        (define (iter items)
+          (cond ((null? items) '())
+                ((and (eq? (caar items) label)
+                      (= (cdar items) n))
+                 (iter (cdr items)))
+                (else
+                 (cons (car items) (iter (cdr items))))))
+        (set! breakpoints (iter breakpoints)))
+      (define (dispatch message)
+        (cond ((eq? message 'start)
+               (set-contents! pc the-instruction-sequence)
+               (execute))
+              ((eq? message 'install-instruction-sequence)
+               (lambda (seq) (set! the-instruction-sequence seq)))
+              ((eq? message 'allocate-register) allocate-register)
+              ((eq? message 'get-register) lookup-register)
+              ((eq? message 'install-operations)
+               (lambda (ops) (set! the-ops (append the-ops ops))))
+              ((eq? message 'stack) stack)
+              ((eq? message 'operations) the-ops)
+              ((eq? message 'print-instruction-count)
+               (display instruction-count)
+               (newline))
+              ((eq? message 'init-instruction-count)
+               (set! instruction-count 0))
+              ((eq? message 'trace-on) ; 5.16
+               (set! tracing? #t))
+              ((eq? message 'trace-off)
+               (set! tracing? #f))
+              ((eq? message 'reg-trace-on)
+               (lambda (name) ((lookup-register name) 'trace-on)))
+              ((eq? message 'reg-trace-off)
+               (lambda (name) ((lookup-register name) 'trace-off)))
+              ((eq? message 'set-breakpoint)
+               add-breakpoint)
+              ((eq? message 'proceed)
+               (proceed))
+              ((eq? message 'cancel-breakpoint)
+               remove-breakpoint)
+              ((eq? message 'cancel-all-breakpoints)
+               (set! breakpoints '()))
+              (else (error "Unknown request -- MACHINE" message))))
+      dispatch)))
+
+(define (start machine)
+  (machine 'start))
+
+(define (get-register-contents machine register-name)
+  (get-contents (get-register machine register-name)))
+
+(define (set-register-contents! machine register-name value)
+  (set-contents! (get-register machine register-name) value)
+  'done)
+
+(define (get-register machine reg-name)
+  ((machine 'get-register) reg-name))
+
+(define (assemble controller-text machine)
+  (extract-labels controller-text
+                  (lambda (insts labels)
+                    (update-insts! insts labels machine)
+                    insts)))
+
+(define (extract-labels text receive)
+  (if (null? text)
+      (receive '() '())
+      (extract-labels (cdr text)
+                      (lambda (insts labels)
+                        (let ((next-inst (car text)))
+                          (if (symbol? next-inst)
+                              (begin
+                                (if (not (null? insts))
+                                    (set-instruction-positions! insts next-inst))
+                                (receive insts
+                                         (cons (make-label-entry next-inst
+                                                                 insts)
+                                               labels)))
+                              (receive (cons (make-instruction next-inst)
+                                             insts)
+                                       labels)))))))
+
+(define (update-insts! insts labels machine)
+  (let ((pc (get-register machine 'pc))
+        (flag (get-register machine 'flag))
+        (stack (machine 'stack))
+        (ops (machine 'operations)))
+    (for-each
+     (lambda (inst)
+       (set-instruction-execution-proc!
+        inst
+        (make-execution-procedure
+         (instruction-text inst) labels machine
+         pc flag stack ops)))
+     insts)))
+
+(define (make-instruction text)
+  (list text '() '() '() '()))
+
+(define (instruction-text inst)
+  (car inst))
+
+(define (instruction-label inst)
+  (cadr inst))
+
+(define (instruction-offset inst)
+  (caddr inst))
+
+(define (instruction-execution-proc inst)
+  (cadddr inst))
+
+(define (set-instruction-execution-proc! inst proc)
+  (set-car! (cdddr inst) proc))
+
+(define (set-instruction-label! inst label)
+  (set-car! (cdr inst) label))
+
+(define (set-instruction-offset! inst offset)
+  (set-car! (cddr inst) offset))
+
+(define (set-instruction-positions! insts label)
+  (define (iter insts n)
+    (if (null? insts)
+        'done
+        (let ((inst (car insts)))
+          (if (not (null? (instruction-label inst)))
+              'done
+              (begin
+                (set-instruction-label! inst label)
+                (set-instruction-offset! inst n)
+                (iter (cdr insts) (+ n 1)))))))
+  (iter insts 1))
+
+(define (make-label-entry label-name insts)
+  (cons label-name insts))
+
+(define (lookup-label labels label-name)
+  (let ((val (assoc label-name labels)))
+    (if val
+        (cdr val)
+        (error "Undefined label -- ASSEMBLE" label-name))))
+
+(define (make-execution-procedure inst labels machine
+                                  pc flag stack ops)
+  (cond ((eq? (car inst) 'assign)
+         (make-assign inst machine labels ops pc))
+        ((eq? (car inst) 'test)
+         (make-test inst machine labels ops flag pc))
+        ((eq? (car inst) 'branch)
+         (make-branch inst machine labels flag pc))
+        ((eq? (car inst) 'goto)
+         (make-goto inst machine labels pc))
+        ((eq? (car inst) 'save)
+         (make-save inst machine stack pc))
+        ((eq? (car inst) 'restore)
+         (make-restore inst machine stack pc))
+        ((eq? (car inst) 'perform)
+         (make-perform inst machine labels ops pc))
+        (else (error "Unknown instruction type -- ASSEMBLE"
+                     inst))))
+
+(define (make-assign inst machine labels operations pc)
+  (let ((target
+         (get-register machine (assign-reg-name inst)))
+        (value-exp (assign-value-exp inst)))
+    (let ((value-proc
+           (if (operation-exp? value-exp)
+               (make-operation-exp
+                value-exp machine labels operations)
+               (make-primitive-exp
+                (car value-exp) machine labels))))
+      (lambda ()
+        (set-contents! target (value-proc))
+        (advance-pc pc)))))
+
+(define (assign-reg-name assign-instruction)
+  (cadr assign-instruction))
+
+(define (assign-value-exp assign-instruction)
+  (cddr assign-instruction))
+
+(define (advance-pc pc)
+  (set-contents! pc (cdr (get-contents pc))))
+
+(define (make-test inst machine labels operations flag pc)
+  (let ((condition (test-condition inst)))
+    (if (operation-exp? condition)
+        (let ((condition-proc
+               (make-operation-exp
+                condition machine labels operations)))
+          (lambda ()
+            (set-contents! flag (condition-proc))
+            (advance-pc pc)))
+        (error "Bad TEST instruction -- ASSEMBLE" inst))))
+
+(define (test-condition test-instruction)
+  (cdr test-instruction))
+
+(define (make-branch inst machine labels flag pc)
+  (let ((dest (branch-dest inst)))
+    (if (label-exp? dest)
+        (let ((insts
+               (lookup-label labels (label-exp-label dest))))
+          (lambda ()
+            (if (get-contents flag)
+                (set-contents! pc insts)
+                (advance-pc pc))))
+        (error "Bad BRANCH instruction -- ASSEMBLE" inst))))
+
+(define (branch-dest branch-instruction)
+  (cadr branch-instruction))
+
+(define (make-goto inst machine labels pc)
+  (let ((dest (goto-dest inst)))
+    (cond ((label-exp? dest)
+           (let ((insts
+                  (lookup-label labels
+                                (label-exp-label dest))))
+             (lambda () (set-contents! pc insts))))
+          ((register-exp? dest)
+           (let ((reg
+                  (get-register machine
+                                (register-exp-reg dest))))
+             (lambda ()
+               (set-contents! pc (get-contents reg)))))
+          (else (error "Bad GOTO instruction -- ASSEMBLE"
+                       inst)))))
+
+(define (goto-dest goto-instruction)
+  (cadr goto-instruction))
+
+(define (make-save inst machine stack pc)
+  (let ((reg (get-register machine
+                           (stack-inst-reg-name inst))))
+    (lambda ()
+      (push stack (get-contents reg))
+      (advance-pc pc))))
+
+(define (make-restore inst machine stack pc)
+  (let ((reg (get-register machine
+                           (stack-inst-reg-name inst))))
+    (lambda ()
+      (set-contents! reg (pop stack))
+      (advance-pc pc))))
+
+(define (stack-inst-reg-name stack-instruction)
+  (cadr stack-instruction))
+
+(define (make-perform inst machine labels operations pc)
+  (let ((action (perform-action inst)))
+    (if (operation-exp? action)
+        (let ((action-proc
+               (make-operation-exp
+                action machine labels operations)))
+          (lambda ()
+            (action-proc)
+            (advance-pc pc)))
+        (error "Bad PERFORM instruction -- ASSEMBLE" inst))))
+
+(define (perform-action inst) (cdr inst))
+
+(define (make-primitive-exp exp machine labels)
+  (cond ((constant-exp? exp)
+         (let ((c (constant-exp-value exp)))
+           (lambda () c)))
+        ((label-exp? exp)
+         (let ((insts
+                (lookup-label labels
+                              (label-exp-label exp))))
+           (lambda () insts)))
+        ((register-exp? exp)
+         (let ((r (get-register machine
+                                (register-exp-reg exp))))
+           (lambda () (get-contents r))))
+        (else
+         (error "Unknown expression type -- ASSEMBLE" exp))))
+
+(define (register-exp? exp) (tagged-list? exp 'reg))
+
+(define (register-exp-reg exp) (cadr exp))
+
+(define (constant-exp? exp) (tagged-list? exp 'const))
+
+(define (constant-exp-value exp) (cadr exp))
+
+(define (label-exp? exp) (tagged-list? exp 'label))
+
+(define (label-exp-label exp) (cadr exp))
+
+(define (make-operation-exp exp machine labels operations)
+  (let ((op (lookup-prim (operation-exp-op exp) operations))
+        (aprocs
+         (map (lambda (e)
+                (make-primitive-exp e machine labels))
+              (operation-exp-operands exp))))
+    (lambda ()
+      (apply op (map (lambda (p) (p)) aprocs)))))
+
+(define (operation-exp? exp)
+  (and (pair? exp) (tagged-list? (car exp) 'op)))
+
+(define (operation-exp-op operation-exp)
+  (cadr (car operation-exp)))
+
+(define (operation-exp-operands operation-exp)
+  (cdr operation-exp))
+
+(define (lookup-prim symbol operations)
+  (let ((val (assoc symbol operations)))
+    (if val
+        (cadr val)
+        (error "Unknown operation -- ASSEMBLE" symbol))))
+
+(define (tagged-list? exp tag)
+  (if (pair? exp)
+      (eq? (car exp) tag)
+      #f))
+
+;; ============================================================
+;; 4.1: 評価器が使う構文解析・環境・基本手続き
+;; ============================================================
+
+;; ===== 4.1.2: syntax =====
+(define (self-evaluating? exp)
+  (or (number? exp) (string? exp)))
+(define (variable? exp) (symbol? exp))
+(define (quoted? exp) (tagged-list? exp 'quote))
+(define (text-of-quotation exp) (cadr exp))
+(define (assignment? exp) (tagged-list? exp 'set!))
+(define (assignment-variable exp) (cadr exp))
+(define (assignment-value exp) (caddr exp))
+(define (definition? exp) (tagged-list? exp 'define))
+(define (definition-variable exp)
+  (if (symbol? (cadr exp)) (cadr exp) (caadr exp)))
+(define (definition-value exp)
+  (if (symbol? (cadr exp))
+      (caddr exp)
+      (make-lambda (cdadr exp) (cddr exp))))
+(define (lambda? exp) (tagged-list? exp 'lambda))
+(define (lambda-parameters exp) (cadr exp))
+(define (lambda-body exp) (cddr exp))
+(define (make-lambda parameters body)
+  (cons 'lambda (cons parameters body)))
+(define (if? exp) (tagged-list? exp 'if))
+(define (if-predicate exp) (cadr exp))
+(define (if-consequent exp) (caddr exp))
+(define (if-alternative exp)
+  (if (null? (cdddr exp)) 'false (cadddr exp)))
+(define (begin? exp) (tagged-list? exp 'begin))
+(define (begin-actions exp) (cdr exp))
+(define (first-exp seq) (car seq))
+(define (rest-exps seq) (cdr seq))
+(define (last-exp? seq) (null? (cdr seq)))
+(define (application? exp) (pair? exp))
+(define (operator exp) (car exp))
+(define (operands exp) (cdr exp))
+(define (no-operands? ops) (null? ops))
+(define (first-operand ops) (car ops))
+(define (rest-operands ops) (cdr ops))
+(define (last-operand? ops) (null? (cdr ops)))
+(define (empty-arglist) '())
+(define (adjoin-arg arg arglist) (append arglist (list arg)))
+
+;; ===== 4.1.3: compound procedures and environments =====
+(define (true? x) (not (eq? x #f)))
+(define (make-procedure parameters body env)
+  (list 'procedure parameters body env))
+(define (compound-procedure? p) (tagged-list? p 'procedure))
+(define (procedure-parameters p) (cadr p))
+(define (procedure-body p) (caddr p))
+(define (procedure-environment p) (cadddr p))
+(define the-empty-environment '())
+(define (enclosing-environment env) (cdr env))
+(define (first-frame env) (car env))
+(define (make-frame variables values) (cons variables values))
+(define (frame-variables frame) (car frame))
+(define (frame-values frame) (cdr frame))
+(define (add-binding-to-frame! var val frame)
+  (set-car! frame (cons var (car frame)))
+  (set-cdr! frame (cons val (cdr frame))))
+(define (extend-environment vars vals base-env)
+  (cond ((= (length vars) (length vals))
+         (cons (make-frame vars vals) base-env))
+        ((< (length vars) (length vals))
+         (error "Too many arguments supplied" vars vals))
+        (else (error "Too few arguments supplied" vars vals))))
+(define (lookup-variable-value var env)
+  (define (env-loop env)
+    (define (scan vars vals)
+      (cond ((null? vars) (env-loop (enclosing-environment env)))
+            ((eq? var (car vars)) (car vals))
+            (else (scan (cdr vars) (cdr vals)))))
+    (if (null? env)
+        (error "Unbound variable" var)
+        (let ((frame (first-frame env)))
+          (scan (frame-variables frame) (frame-values frame)))))
+  (env-loop env))
+(define (set-variable-value! var val env)
+  (define (env-loop env)
+    (define (scan vars vals)
+      (cond ((null? vars) (env-loop (enclosing-environment env)))
+            ((eq? var (car vars)) (set-car! vals val))
+            (else (scan (cdr vars) (cdr vals)))))
+    (if (null? env)
+        (error "Unbound variable -- SET!" var)
+        (let ((frame (first-frame env)))
+          (scan (frame-variables frame) (frame-values frame)))))
+  (env-loop env))
+(define (define-variable! var val env)
+  (let ((frame (first-frame env)))
+    (define (scan vars vals)
+      (cond ((null? vars) (add-binding-to-frame! var val frame))
+            ((eq? var (car vars)) (set-car! vals val))
+            (else (scan (cdr vars) (cdr vals)))))
+    (scan (frame-variables frame) (frame-values frame))))
+
+;; ===== 4.1.4: primitive procedures and global environment =====
+(define primitive-procedures
+  (list (list 'car car) (list 'cdr cdr) (list 'cons cons)
+        (list 'null? null?) (list 'pair? pair?) (list 'list list)
+        (list 'eq? eq?) (list 'equal? equal?)
+        (list 'number? number?) (list 'symbol? symbol?)
+        (list '+ +) (list '- -) (list '* *) (list '/ /)
+        (list '= =) (list '< <) (list '> >)
+        (list 'not not) (list 'display display) (list 'newline newline)))
+(define (primitive-procedure-names)
+  (map car primitive-procedures))
+(define (primitive-procedure-objects)
+  (map (lambda (proc) (list 'primitive (cadr proc)))
+       primitive-procedures))
+(define (primitive-procedure? proc) (tagged-list? proc 'primitive))
+(define (primitive-implementation proc) (cadr proc))
+(define (apply-primitive-procedure proc args)
+  (apply (primitive-implementation proc) args))
+(define (setup-environment)
+  (let ((initial-env
+         (extend-environment
+          (primitive-procedure-names)
+          (primitive-procedure-objects)
+          the-empty-environment)))
+    (define-variable! 'true #t initial-env)
+    (define-variable! 'false #f initial-env)
+    initial-env))
+(define the-global-environment (setup-environment))
+(define (get-global-environment) the-global-environment)
+(define (prompt-for-input string)
+  (newline) (newline) (display string) (newline))
+(define (announce-output string)
+  (newline) (display string) (newline))
+(define (user-print object)
+  (if (compound-procedure? object)
+      (display (list 'compound-procedure
+                     (procedure-parameters object)
+                     (procedure-body object)
+                     '<procedure-env>))
+      (display object)))
+
+;; ============================================================
+;; 5.4.4: 評価器から呼び出す演算一覧
+;; ============================================================
+
+(define eceval-operations
+  (list
+   (list 'self-evaluating? self-evaluating?)
+   (list 'variable? variable?)
+   (list 'quoted? quoted?)
+   (list 'assignment? assignment?)
+   (list 'definition? definition?)
+   (list 'if? if?)
+   (list 'lambda? lambda?)
+   (list 'begin? begin?)
+   (list 'application? application?)
+   (list 'lookup-variable-value lookup-variable-value)
+   (list 'text-of-quotation text-of-quotation)
+   (list 'lambda-parameters lambda-parameters)
+   (list 'lambda-body lambda-body)
+   (list 'make-procedure make-procedure)
+   (list 'operands operands)
+   (list 'operator operator)
+   (list 'empty-arglist empty-arglist)
+   (list 'no-operands? no-operands?)
+   (list 'first-operand first-operand)
+   (list 'last-operand? last-operand?)
+   (list 'adjoin-arg adjoin-arg)
+   (list 'rest-operands rest-operands)
+   (list 'primitive-procedure? primitive-procedure?)
+   (list 'compound-procedure? compound-procedure?)
+   (list 'apply-primitive-procedure apply-primitive-procedure)
+   (list 'procedure-parameters procedure-parameters)
+   (list 'procedure-environment procedure-environment)
+   (list 'extend-environment extend-environment)
+   (list 'procedure-body procedure-body)
+   (list 'begin-actions begin-actions)
+   (list 'first-exp first-exp)
+   (list 'last-exp? last-exp?)
+   (list 'rest-exps rest-exps)
+   (list 'if-predicate if-predicate)
+   (list 'if-alternative if-alternative)
+   (list 'if-consequent if-consequent)
+   (list 'true? true?)
+   (list 'assignment-variable assignment-variable)
+   (list 'assignment-value assignment-value)
+   (list 'set-variable-value! set-variable-value!)
+   (list 'definition-variable definition-variable)
+   (list 'definition-value definition-value)
+   (list 'define-variable! define-variable!)
+   (list 'prompt-for-input prompt-for-input)
+   (list 'read read)
+   (list 'eof-object? eof-object?) ; REPL が EOF で停止するように追加
+   (list 'get-global-environment get-global-environment)
+   (list 'announce-output announce-output)
+   (list 'user-print user-print)))
+
+;; ============================================================
+;; 5.4: eval / apply を明示制御するレジスタ計算機
+;; ============================================================
+
+(define eceval
   (make-machine
-   '(exp uenv val continue)
-   (list)
-   '(eval-dispatch
+   '(exp
+     ; 現在評価しようとしている「1つの式」
+     ; 例: '(+ 1 2), '+, '1
+     ; eval-dispatchはこのレジスタを見て評価方法を決める
+
+     env
+     ; expを評価するための環境(変数名と値の対応を持つ環境フレームの連鎖)
+     ; 例: x=10という束縛を持つ環境
+     ; 変数xを評価するとき、この環境から値10を探す
+
+     val
+     ; 直前に評価した式の結果(Schemeの任意の値)
+     ; 例: (+ 1 2) の評価結果なら3
+     ; 部分式の評価結果もここに入り、次の処理に渡される
+
+     proc
+     ; 現在適用しようとしている手続き
+     ; 例: (+ 1 2) なら、変数+を評価して得た加算手続き
+     ; apply-dispatchがこの手続きをarglの引数に適用する
+
+     argl
+     ; 手続きに渡す、評価済みの実引数の値のリスト
+     ; 例: (+ x (* 2 3)) でx=10なら、最終的に(10 6)
+     ; 引数の「式」ではなく、評価した「値」を保持する
+
+     continue
+     ; 現在の評価が終了した後に実行を再開する場所
+     ; 例: ev-appl-did-operator(演算子の評価が終わった後の処理)
+     ; 関数呼び出しにおける戻りアドレスの役割を果たす
+
+     unev)
+   ; これから処理する式などのリストを一時的に保持する
+   ; 例: (+ x (* 2 3)) の引数部分なら '(x (* 2 3))
+   ; 引数の評価が進むにつれて未処理部分が減っていく
+   ; 手続き本体の式列や仮引数名のリストにも使用される
+   eceval-operations
+   '(read-eval-print-loop
+     (perform (op initialize-stack))
+     (perform (op prompt-for-input) (const ";;; EC-Eval input:"))
+     (assign exp (op read))
+     (test (op eof-object?) (reg exp))
+     (branch (label evaluator-done))
+     (assign env (op get-global-environment))
+     (assign continue (label print-result))
+     (goto (label eval-dispatch))
+
+     print-result
+     (perform (op announce-output) (const ";;; EC-Eval value:"))
+     (perform (op user-print) (reg val))
+     (goto (label read-eval-print-loop))
+
+     eval-dispatch
      (test (op self-evaluating?) (reg exp))
      (branch (label ev-self-eval))
      (test (op variable?) (reg exp))
      (branch (label ev-variable))
-     (test (op quated?) (reg exp))
+     (test (op quoted?) (reg exp))
      (branch (label ev-quoted))
      (test (op assignment?) (reg exp))
      (branch (label ev-assignment))
      (test (op definition?) (reg exp))
      (branch (label ev-definition))
      (test (op if?) (reg exp))
+     (branch (label ev-if))
+     (test (op lambda?) (reg exp))
      (branch (label ev-lambda))
      (test (op begin?) (reg exp))
      (branch (label ev-begin))
      (test (op application?) (reg exp))
      (branch (label ev-application))
      (goto (label unknown-expression-type))
+
      ev-self-eval
      (assign val (reg exp))
      (goto (reg continue))
+
      ev-variable
      (assign val (op lookup-variable-value) (reg exp) (reg env))
      (goto (reg continue))
+
      ev-quoted
      (assign val (op text-of-quotation) (reg exp))
      (goto (reg continue))
+
      ev-lambda
-     (assign uenv (op lambda-parameters) (reg exp))
+     (assign unev (op lambda-parameters) (reg exp))
      (assign exp (op lambda-body) (reg exp))
-     (assign val (op make-procedure)
-             (reg uenv) (reg exp) (reg env))
+     (assign val (op make-procedure) (reg unev) (reg exp) (reg env))
      (goto (reg continue))
+
      ev-application
      (save continue)
      (save env)
-     (assign uenv (op operands) (reg exp))
-     (save uenv)
+     (assign unev (op operands) (reg exp))
+     (save unev)
      (assign exp (op operator) (reg exp))
      (assign continue (label ev-appl-did-operator))
      (goto (label eval-dispatch))
+
      ev-appl-did-operator
-     (restore uenv)
+     (restore unev)
      (restore env)
      (assign argl (op empty-arglist))
      (assign proc (reg val))
-     (test (op no-operands?) (reg uenv))
+     (test (op no-operands?) (reg unev))
      (branch (label apply-dispatch))
      (save proc)
+
      ev-appl-operand-loop
      (save argl)
-     (assign exp (op first-operand) (reg uenv))
-     (test (op last-operand?) (reg uenv))
+     (assign exp (op first-operand) (reg unev))
+     (test (op last-operand?) (reg unev))
      (branch (label ev-appl-last-arg))
      (save env)
-     (save uenv)
+     (save unev)
      (assign continue (label ev-appl-accumulate-arg))
      (goto (label eval-dispatch))
+
      ev-appl-accumulate-arg
-     (restore uenv)
+     (restore unev)
      (restore env)
      (restore argl)
      (assign argl (op adjoin-arg) (reg val) (reg argl))
-     (assign uenv (op rest-operands) (reg uenv))
+     (assign unev (op rest-operands) (reg unev))
      (goto (label ev-appl-operand-loop))
+
      ev-appl-last-arg
      (assign continue (label ev-appl-accum-last-arg))
      (goto (label eval-dispatch))
+
      ev-appl-accum-last-arg
      (restore argl)
      (assign argl (op adjoin-arg) (reg val) (reg argl))
      (restore proc)
      (goto (label apply-dispatch))
+
      apply-dispatch
      (test (op primitive-procedure?) (reg proc))
      (branch (label primitive-apply))
      (test (op compound-procedure?) (reg proc))
      (branch (label compound-apply))
      (goto (label unknown-procedure-type))
+
      primitive-apply
      (assign val (op apply-primitive-procedure) (reg proc) (reg argl))
      (restore continue)
      (goto (reg continue))
+
      compound-apply
      (assign unev (op procedure-parameters) (reg proc))
      (assign env (op procedure-environment) (reg proc))
      (assign env (op extend-environment) (reg unev) (reg argl) (reg env))
      (assign unev (op procedure-body) (reg proc))
-     (goto (label ev-sequence)))))
+     (goto (label ev-sequence))
+
+     ev-begin
+     (assign unev (op begin-actions) (reg exp))
+     (save continue)
+     (goto (label ev-sequence))
+
+     ev-sequence
+     (assign exp (op first-exp) (reg unev))
+     (test (op last-exp?) (reg unev))
+     (branch (label ev-sequence-last-exp))
+     (save unev)
+     (save env)
+     (assign continue (label ev-sequence-continue))
+     (goto (label eval-dispatch))
+
+     ev-sequence-continue
+     (restore env)
+     (restore unev)
+     (assign unev (op rest-exps) (reg unev))
+     (goto (label ev-sequence))
+
+     ev-sequence-last-exp
+     (restore continue)
+     (goto (label eval-dispatch))
+
+     ev-if
+     (save exp)
+     (save env)
+     (save continue)
+     (assign continue (label ev-if-decide))
+     (assign exp (op if-predicate) (reg exp))
+     (goto (label eval-dispatch))
+
+     ev-if-decide
+     (restore continue)
+     (restore env)
+     (restore exp)
+     (test (op true?) (reg val))
+     (branch (label ev-if-consequent))
+
+     ev-if-alternative
+     (assign exp (op if-alternative) (reg exp))
+     (goto (label eval-dispatch))
+
+     ev-if-consequent
+     (assign exp (op if-consequent) (reg exp))
+     (goto (label eval-dispatch))
+
+     ev-assignment
+     (assign unev (op assignment-variable) (reg exp))
+     (save unev)
+     (assign exp (op assignment-value) (reg exp))
+     (save env)
+     (save continue)
+     (assign continue (label ev-assignment-1))
+     (goto (label eval-dispatch))
+
+     ev-assignment-1
+     (restore continue)
+     (restore env)
+     (restore unev)
+     (perform (op set-variable-value!) (reg unev) (reg val) (reg env))
+     (assign val (const ok))
+     (goto (reg continue))
+
+     ev-definition
+     (assign unev (op definition-variable) (reg exp))
+     (save unev)
+     (assign exp (op definition-value) (reg exp))
+     (save env)
+     (save continue)
+     (assign continue (label ev-definition-1))
+     (goto (label eval-dispatch))
+
+     ev-definition-1
+     (restore continue)
+     (restore env)
+     (restore unev)
+     (perform (op define-variable!) (reg unev) (reg val) (reg env))
+     (assign val (const ok))
+     (goto (reg continue))
+
+     unknown-expression-type
+     (assign val (const unknown-expression-type-error))
+     (goto (label signal-error))
+
+     unknown-procedure-type
+     (restore continue)
+     (assign val (const unknown-procedure-type-error))
+     (goto (label signal-error))
+
+     signal-error
+     (perform (op user-print) (reg val))
+     (goto (label read-eval-print-loop))
+
+     evaluator-done)))
+
+;; ============================================================
+;; 使い方
+;; ============================================================
+;; 以下を評価すると明示制御評価器の対話ループが起動する。
+;;   (start eceval)
+;;
+;; 例:
+;;   (+ 1 2)                                 => 3
+;;   (define (square x) (* x x))              => ok
+;;   (square 5)                               => 25
+;;   (define (fact n) (if (= n 1) 1 (* n (fact (- n 1))))) => ok
+;;   (fact 5)                                 => 120
+;;   (begin (define a 1) (set! a (+ a 4)) a) => 5
+;;
+;; トレース例:
+;;   (eceval 'trace-on)
+;;   ((eceval 'reg-trace-on) 'exp)
+;;   (eceval 'trace-off)
+;;   ((eceval 'reg-trace-off) 'exp)
+
+(start eceval)
