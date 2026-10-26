@@ -486,6 +486,48 @@
 (define (last-operand? ops) (null? (cdr ops)))
 (define (empty-arglist) '())
 (define (adjoin-arg arg arglist) (append arglist (list arg)))
+; 5.23
+(define (cond? exp) (tagged-list? exp 'cond))
+(define (cond-clauses exp) (cdr exp))
+(define (cond-else-clause? clause)
+  (eq? (cond-predicate clause) 'else))
+(define (cond-predicate clause) (car clause))
+(define (cond-actions clause) (cdr clause))
+(define (cond->if exp)
+  (expand-clauses (cond-clauses exp)))
+(define (expand-clauses clauses)
+  (if (null? clauses)
+      'false                          ; else節なし
+      (let ((first (car clauses))
+            (rest (cdr clauses)))
+        (if (cond-else-clause? first)
+            (if (null? rest)
+                (sequence->exp (cond-actions first))
+                (error "ELSE clause isn't last -- COND->IF"
+                       clauses))
+            (make-if (cond-predicate first)
+                     (sequence->exp (cond-actions first))
+                     (expand-clauses rest))))))
+(define (sequence->exp seq)
+  (cond ((null? seq) seq)
+        ((last-exp? seq) (first-exp seq))
+        (else (make-begin seq))))
+(define (make-if predicate consequent alternative)
+  (list 'if predicate consequent alternative))
+(define (make-begin seq) (cons 'begin seq))
+(define (let? exp) (tagged-list? exp 'let))
+(define (let-bindings exp) (cadr exp))
+(define (let-body exp) (cddr exp))
+(define (binding-variable binding) (car binding))
+(define (binding-value binding) (cadr binding))
+(define (let-variables exp)
+  (map binding-variable (let-bindings exp)))
+(define (let-values exp)
+  (map binding-value (let-bindings exp)))
+(define (let->combination exp)
+  (cons (make-lambda (let-variables exp)
+                     (let-body exp))
+        (let-values exp)))
 
 ;; ===== 4.1.3: compound procedures and environments =====
 (define (true? x) (not (eq? x #f)))
@@ -635,7 +677,11 @@
    (list 'eof-object? eof-object?) ; REPL が EOF で停止するように追加
    (list 'get-global-environment get-global-environment)
    (list 'announce-output announce-output)
-   (list 'user-print user-print)))
+   (list 'user-print user-print)
+   (list 'cond? cond?)
+   (list 'cond->if cond->if)
+   (list 'let? let?)
+   (list 'let->combination let->combination)))
 
 ;; ============================================================
 ;; 5.4: eval / apply を明示制御するレジスタ計算機
@@ -707,6 +753,10 @@
      (branch (label ev-definition))
      (test (op if?) (reg exp))
      (branch (label ev-if))
+     (test (op cond?) (reg exp))
+     (branch (label ev-cond))
+     (test (op let?) (reg exp))
+     (branch (label ev-let))
      (test (op lambda?) (reg exp))
      (branch (label ev-lambda))
      (test (op begin?) (reg exp))
@@ -845,6 +895,14 @@
      (assign exp (op if-consequent) (reg exp))
      (goto (label eval-dispatch))
 
+     ev-cond
+     (assign exp (op cond->if) (reg exp))
+     (goto (label eval-dispatch))
+
+     ev-let
+     (assign exp (op let->combination) (reg exp))
+     (goto (label eval-dispatch))
+
      ev-assignment
      (assign unev (op assignment-variable) (reg exp))
      (save unev)
@@ -915,3 +973,6 @@
 ;;   ((eceval 'reg-trace-off) 'exp)
 
 (start eceval)
+
+; (define (a x) (if (> x 0) x (if (= x 0) (begin (display 'zero) 0) (- x))))
+; (define (b x) (let ((b 3)) (* x b)))
