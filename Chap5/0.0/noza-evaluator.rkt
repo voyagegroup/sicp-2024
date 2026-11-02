@@ -114,4 +114,28 @@
                   (reg unev) (reg argl) (reg env))
       (assign unev (op procedure-body) (reg proc))
       (goto (label ev-sequence))
+
+    ev-begin
+      (assign unev (op begin-actions) (reg exp))
+      (save continue)
+      (goto (label ev-sequence))
+
+    ev-sequence
+      (assign exp (op first-exp) (reg unev))
+      (test (op last-exp?) (reg unev))
+      (branch (label ev-sequence-last-exp))
+      (save unev)
+      (save env)
+      (assign continue (label ev-sequence-continue))
+      (goto (label eval-dispatch))
+
+    ev-sequence-continue
+      (restore env)
+      (restore unev)
+      (assign unev (op rest-exps) (reg unev))
+      (goto (label ev-sequence))
+
+    ev-sequence-last-exp
+      (restore continue)
+      (goto (label eval-dispatch))
    )))
