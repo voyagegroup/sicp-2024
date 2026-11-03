@@ -1,11 +1,69 @@
 #lang sicp
 
+(define eceval-operations
+  (list (list 'prompt-for-input prompt-for-input)
+        (list 'read read)
+        (list 'get-global-environment get-global-environment)
+        (list 'self-evaluating? self-evaluating?)
+        (list 'variable? variable?)
+        (list 'quoted? quoted?)
+        (list 'assignment? assignment?)
+        (list 'definition? definition?)
+        (list 'if? if?)
+        (list 'lambda? lambda?)
+        (list 'begin? begin?)
+        (list 'application? application?)
+        (list 'lookup-variable-value lookup-variable-value)
+        (list 'text-of-quotation text-of-quotation)
+        (list 'lambda-parameters lambda-parameters)
+        (list 'lambda-body lambda-body)
+        (list 'make-procedure make-procedure)
+        (list 'operands operands)
+        (list 'operator operator)
+        (list 'empty-arglist empty-arglist)
+        (list 'no-operands? no-operands?)
+        (list 'first-operand first-operand)
+        (list 'last-operand? last-operand?)
+        (list 'adjoin-arg adjoin-arg)
+        (list 'rest-operands rest-operands)
+        (list 'primitive-procedure? primitive-procedure?)
+        (list 'compound-procedure? compound-procedure?)
+        (list 'apply-primitive-procedure apply-primitive-procedure)
+        (list 'procedure-parameters procedure-parameters)
+        (list 'procedure-environment procedure-environment)
+        (list 'extend-environment extend-environment)
+        (list 'procedure-body procedure-body)
+        (list 'begin-actions begin-actions)
+        (list 'first-exp first-exp)
+        (list 'last-exp? last-exp?)
+        (list 'rest-exps rest-exps)
+        (list 'if-predicate if-predicate)
+        (list 'true? true?)
+        (list 'if-alternative if-alternative)
+        (list 'if-consequent if-consequent)
+        (list 'assignment-variable assignment-variable)
+        (list 'assignment-value assignment-value)
+        (list 'set-variable-value! set-variable-value!)
+        (list 'definition-variable definition-variable)
+        (list 'definition-value definition-value)
+        (list 'define-variable! define-variable!)
+        (list 'announce-output announce-output)
+        (list 'user-print user-print)))
+
 (define eceval
   (make-machine
    '(exp env val proc argl continue unev)
-   (list
-    (list 'self-evaluating? self-evaluating?))
+   eceval-operations
    '(
+    read-eval-print-loop
+      (perform (op initialize-stack))
+      (perform
+       (op prompt-for-input) (const ";;; EC-Eval input:"))
+      (assign exp (op read))
+      (assign env (op get-global-environment))
+      (assign continue (label print-result))
+      (goto (label eval-dispatch))
+
     eval-dispatch
       (test (op self-evaluating?) (reg exp))
       (branch (label ev-self-eval))
@@ -189,7 +247,6 @@
       (assign continue (label ev-definition-1))
       (goto (label eval-dispatch)) ; 定義する値を評価
 
-
     ev-definition-1
       (restore continue)
       (restore env)
@@ -198,4 +255,27 @@
        (op define-variable!) (reg unev) (reg val) (reg env))
       (assign val (const ok))
       (goto (reg continue))
+
+    print-result
+      (perform
+       (op announce-output) (const ";;; EC-Eval value:"))
+      (perform (op user-print) (reg val))
+      (goto (label read-eval-print-loop))
+
+    unknown-expression-type
+      (assign val (const unknown-expression-type-error))
+      (goto (label signal-error))
+
+    unknown-procedure-type
+      (restore continue) ; スタックを掃除する
+      (assign val (const unknown-procedure-type-error))
+      (goto (label signal-error))
+
+    signal-error
+      (perform (op user-print) (reg val))
+      (goto (label read-eval-print-loop))
    )))
+
+(define the-global-environment (setup-environment))
+
+(start eceval)
