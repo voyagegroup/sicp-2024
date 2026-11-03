@@ -6,26 +6,26 @@
    (list
     (list 'self-evaluating? self-evaluating?))
    '(
-     eval-dispatch
-       (test (op self-evaluating?) (reg exp))
-       (branch (label ev-self-eval))
-       (test (op variable?) (reg exp))
-       (branch (label ev-variable))
-       (test (op quoted?) (reg exp))
-       (branch (label ev-quoted))
-       (test (op assignment?) (reg exp))
-       (branch (label ev-assignment))
-       (test (op definition?) (reg exp))
-       (branch (label ev-definition))
-       (test (op if?) (reg exp))
-       (branch (label ev-if))
-       (test (op lambda?) (reg exp))
-       (branch (label ev-lambda))
-       (test (op begin?) (reg exp))
-       (branch (label ev-begin))
-       (test (op application?) (reg exp))
-       (branch (label ev-application))
-       (goto (label unknown-expression-type))
+    eval-dispatch
+      (test (op self-evaluating?) (reg exp))
+      (branch (label ev-self-eval))
+      (test (op variable?) (reg exp))
+      (branch (label ev-variable))
+      (test (op quoted?) (reg exp))
+      (branch (label ev-quoted))
+      (test (op assignment?) (reg exp))
+      (branch (label ev-assignment))
+      (test (op definition?) (reg exp))
+      (branch (label ev-definition))
+      (test (op if?) (reg exp))
+      (branch (label ev-if))
+      (test (op lambda?) (reg exp))
+      (branch (label ev-lambda))
+      (test (op begin?) (reg exp))
+      (branch (label ev-begin))
+      (test (op application?) (reg exp))
+      (branch (label ev-application))
+      (goto (label unknown-expression-type))
 
     ; 単純式の評価
     ev-self-eval
@@ -48,13 +48,13 @@
       (goto (reg continue))
 
     ev-application
-     (save continue)
-     (save env)
-     (assign unev (op operands) (reg exp))
-     (save unev)
-     (assign exp (op operator) (reg exp))
-     (assign continue (label ev-appl-did-operator))
-     (goto (label eval-dispatch))
+      (save continue)
+      (save env)
+      (assign unev (op operands) (reg exp))
+      (save unev)
+      (assign exp (op operator) (reg exp))
+      (assign continue (label ev-appl-did-operator))
+      (goto (label eval-dispatch))
 
     ev-appl-did-operator
       (restore unev) ; 被演算子
@@ -138,4 +138,64 @@
     ev-sequence-last-exp
       (restore continue)
       (goto (label eval-dispatch))
+
+    ev-if
+      (save exp)
+      (save env)
+      (save continue)
+      (assign continue (label ev-if-decide))
+      (assign exp (op if-predicate) (reg exp))
+      (goto (label eval-dispatch)) ; 述語を評価
+
+    ev-if-decide
+      (restore continue)
+      (restore env)
+      (restore exp)
+      (test (op true?) (reg val))
+      (branch (label ev-if-consequent))
+
+    ev-if-alternative
+      (assign exp (op if-alternative) (reg exp))
+      (goto (label eval-dispatch))
+
+    ev-if-consequent
+      (assign exp (op if-consequent) (reg exp))
+      (goto (label eval-dispatch))
+
+    ev-assignment
+      (assign unev (op assignment-variable) (reg exp))
+      (save unev) ; 後のために変数を退避
+      (assign exp (op assignment-value) (reg exp))
+      (save env)
+      (save continue)
+      (assign continue (label ev-assignment-1))
+      (goto (label eval-dispatch))
+
+    ev-assignment-1
+      (restore continue)
+      (restore env)
+      (restore unev)
+      (perform
+       (op set-variable-value!) (reg unev) (reg val) (reg env))
+      (assign val (const ok))
+      (goto (reg continue))
+
+    ev-definition
+      (assign unev (op definition-variable) (reg exp))
+      (save unev) ; 後のために変数を退避
+      (assign exp (op definition-value) (reg exp))
+      (save env)
+      (save continue)
+      (assign continue (label ev-definition-1))
+      (goto (label eval-dispatch)) ; 定義する値を評価
+
+
+    ev-definition-1
+      (restore continue)
+      (restore env)
+      (restore unev)
+      (perform
+       (op define-variable!) (reg unev) (reg val) (reg env))
+      (assign val (const ok))
+      (goto (reg continue))
    )))
