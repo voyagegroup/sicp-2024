@@ -493,6 +493,12 @@
   (eq? (cond-predicate clause) 'else))
 (define (cond-predicate clause) (car clause))
 (define (cond-actions clause) (cdr clause))
+(define (no-clauses? clauses)
+  (null? clauses))
+(define (first-clause clauses)
+  (car clauses))
+(define (rest-clauses clauses)
+  (cdr clauses))
 (define (cond->if exp)
   (expand-clauses (cond-clauses exp)))
 (define (expand-clauses clauses)
@@ -679,7 +685,13 @@
    (list 'announce-output announce-output)
    (list 'user-print user-print)
    (list 'cond? cond?)
-   (list 'cond->if cond->if)
+   (list 'cond-clauses cond-clauses)
+   (list 'no-clauses? no-clauses?)
+   (list 'first-clause first-clause)
+   (list 'rest-clauses rest-clauses)
+   (list 'cond-else-clause? cond-else-clause?)
+   (list 'cond-actions cond-actions)
+   (list 'cond-predicate cond-predicate)
    (list 'let? let?)
    (list 'let->combination let->combination)))
 
@@ -895,8 +907,40 @@
      (assign exp (op if-consequent) (reg exp))
      (goto (label eval-dispatch))
 
+    ;5.24
      ev-cond
-     (assign exp (op cond->if) (reg exp))
+     (assign unev (op cond-clauses) (reg exp))
+     (save continue)
+     (goto (label ev-cond-loop))
+
+     ev-cond-loop
+     (test (op no-clauses?) (reg unev))
+     (branch (label ev-cond-no-match))
+     (assign exp (op first-clause) (reg unev))
+     (test (op cond-else-clause?) (reg exp))
+     (branch (label ev-cond-actions))
+     (assign exp (op cond-predicate) (reg exp))
+     (assign continue (label ev-cond-decide))
+     (save env)
+     (save unev)
+     (goto (label eval-dispatch))
+
+     ev-cond-decide
+     (restore unev)
+     (restore env)
+     (test (op true?) (reg val))
+     (branch (label ev-cond-actions))
+     (assign unev (op rest-clauses) (reg unev))
+     (goto (label ev-cond-loop))
+
+     ev-cond-actions
+     (assign exp (op first-clause) (reg unev))
+     (assign unev (op cond-actions) (reg exp))
+     (goto (label ev-sequence))
+
+     ev-cond-no-match
+     (restore continue)
+     (assign exp (const false))
      (goto (label eval-dispatch))
 
      ev-let
