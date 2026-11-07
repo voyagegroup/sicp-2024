@@ -228,6 +228,13 @@
 
 ; 5.23 cond
 
+; 5.24 cond
+; condの節がなくなったかをチェック
+(define (no-more-clauses? clauses)
+  (null? clauses))
+
+; 5.24 cond
+
 ; --- eceval-operations
 
 (define eceval-operations
@@ -282,6 +289,13 @@
    (list 'user-print user-print)
    (list 'cond? cond?)
    (list 'cond->if cond->if)
+   (list 'cond-clauses cond-clauses)
+   (list 'no-more-clauses? no-more-clauses?)
+   (list 'cond-else-clause? cond-else-clause?)
+   (list 'cond-predicate cond-predicate)
+   (list 'cond-actions cond-actions)
+   (list 'first-clause car)
+   (list 'rest-clauses cdr)
    ))
 
 

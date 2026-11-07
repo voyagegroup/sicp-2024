@@ -176,9 +176,57 @@
      (assign exp (op if-predicate) (reg exp))
      (goto (label eval-dispatch)); 述語を評価
 
-     ev-cond ; 5.23
-     (assign exp (op cond->if) (reg exp))
+     ev-cond ; 5.24
+     (save continue)
+     (assign unev (op cond-clauses) (reg exp))
+
+     ev-cond-loop
+     ; 節がなくなっったらfalse
+     (test (op no-more-clauses?) (reg unev))
+     (branch (label ev-cond-no-match))
+
+     ; elseか確認
+     (assign exp (op first-clause) (reg unev))
+     (test (op cond-else-clause?) (reg exp))
+     (branch (label ev-cond-else))
+
+     ; 術後を評価
+     (save unev)
+     (save env)
+     (assign exp (op cond-predicate) (reg exp))
+     (assign continue (label ev-cond-decide))
      (goto (label eval-dispatch))
+
+     ev-cond-decide
+     ; 術後の評価が終わった
+     (restore env)
+     (restore unev)
+     (test (op true?) (reg val))
+     (branch (label ev-cond-actions))
+
+     ; falseなら次の節へ
+     (assign unev (op rest-clauses) (reg unev))
+     (goto (label ev-cond-loop))
+
+     ev-cond-actions
+     ; trueだった節のactionを評価
+     (assign exp (op first-clause) (reg unev))
+     (assign unev (op cond-actions) (reg exp))
+     (goto (label ev-sequence))
+
+     ev-cond-else
+     ; elseのactionを評価
+     (assign unev (op cond-actions) (reg exp))
+     (goto (label ev-sequence))
+
+     ev-cond-no-match
+     ; trueになる節がなかった
+     (assign val (const false))
+     (restore continue)
+     (goto (reg continue))
+     
+           
+      
 
      ev-if-decide
      (restore continue)
