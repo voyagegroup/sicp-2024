@@ -188,6 +188,9 @@
              '<procedure-env>))
       (display object)))
 
+(define (last-exp? seq)
+  (null? (cdr seq)))
+
 ; 5.23 cond
 (define (cond? exp)
   (tagged-list? exp 'cond))
@@ -296,6 +299,7 @@
    (list 'cond-actions cond-actions)
    (list 'first-clause car)
    (list 'rest-clauses cdr)
+   (list 'last-exp? last-exp?)
    ))
 
 

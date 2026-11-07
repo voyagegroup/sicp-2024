@@ -10,6 +10,8 @@
         (list '+ +)
         (list '- -)
         (list '* *)
+        (list '> >)
+        (list '< <)
         (list '/ /)))
 
 (define (setup-environment)

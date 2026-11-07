@@ -147,24 +147,28 @@
      (goto (reg continue))
 |#
      ; 末尾再帰
+     ; 末尾再帰対応
      ev-sequence
-     (test (op no-more-exps?) (reg unev))
-     (branch (label ev-sequence-end))
      (assign exp (op first-exp) (reg unev))
+     (test (op last-exp?) (reg unev))
+     (branch (label ev-sequence-last-exp))
+
+     ; 最後の式でなければ退避
      (save unev)
      (save env)
      (assign continue (label ev-sequence-continue))
      (goto (label eval-dispatch))
-     
+
      ev-sequence-continue
      (restore env)
      (restore unev)
      (assign unev (op rest-exps) (reg unev))
      (goto (label ev-sequence))
-     
-     ev-sequence-end
+
+     ev-sequence-last-exp
+     ; 最後の式は退避せずに評価
      (restore continue)
-     (goto (reg continue))
+     (goto (label eval-dispatch))
 
 
      ; 5.4.3
@@ -291,6 +295,7 @@
      (goto (label eval-dispatch))
 
      print-result
+     (perform (op print-stack-statistics))
      (perform
       (op announce-output) (const ";;; EC-Eval value:"))
      (perform (op user-print) (reg val))
