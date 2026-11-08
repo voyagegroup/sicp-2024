@@ -64,11 +64,73 @@
      ev-appl-did-operator
      (restore unev) ; 被演算子
      (restore env)
+     ; 演算子がthunkなら実際の値へ
+     (assign continue (label ev-appl-operator-forced))
+     (goto (label force-it))
+
+     ev-appl-operator-forced
      (assign argl (op empty-arglist))
      (assign proc (reg val)) ; 演算子
      (test (op no-operands?) (reg unev))
      (branch (label apply-dispatch))
      (save proc)
+     ; 5.25 手続きの種類を先に判定する
+     (test (op primitive-procedure?) (reg proc))
+     (branch (label ev-appl-operand-loop))
+     (test (op compound-procedure?) (reg proc))
+     (branch (label ev-appl-delay-args))
+     (goto (label unknown-procedure-type))
+
+     ; 5.25 引数は評価せずthunkにする
+     ev-appl-delay-args
+     (assign exp (op first-operand) (reg unev))
+     (assign val (op delay-it) (reg exp) (reg env))
+     (assign argl (op adjoin-arg) (reg val) (reg argl))
+
+     ; 次の引数へ
+     (assign unev (op rest-operands) (reg unev))
+     (test (op no-operands?) (reg unev))
+     (branch (label ev-appl-delay-done))
+     (goto (label ev-appl-delay-args))
+   
+     ev-appl-delay-done
+     (restore proc)
+     (goto (label apply-dispatch))
+
+     force-it
+     (test (op thunk?) (reg val))
+     (branch (label force-thunk))
+     (test (op evaluated-thunk?) (reg val))
+     (branch (label force-evaluated-thunk))
+     (goto (reg continue))
+
+     force-evaluated-thunk
+     (assign val (op thunk-value) (reg val))
+     (goto (reg continue))
+
+     force-thunk
+     ; thunkを評価するまえに戻り先を保存
+     (save continue)
+     (save env)
+     (save val)
+     (assign exp (op thunk-exp) (reg val))
+     (assign env (op thunk-env) (reg val))
+     (assign continue (label force-thunk-done))
+     (goto (label eval-dispatch))
+
+     force-thunk-done
+     ; 評価結果がthunkならさらにforce
+     (assign continue (label force-thunk-memorize))
+     (goto (label force-it))
+
+     force-thunk-memorize
+     ; 元のthunkを取り出して評価結果を保存
+     (restore exp)
+     (perform (op set-thunk-value!) (reg exp) (reg val))
+     (restore env)
+     (restore continue)
+     (goto (reg continue))
+      
 
      ev-appl-operand-loop
      (save argl)
@@ -77,9 +139,14 @@
      (branch (label ev-appl-last-arg))
      (save env)
      (save unev)
-     (assign continue (label ev-appl-accumulate-arg))
+     (assign continue (label ev-appl-force-arg))
      (goto (label eval-dispatch))
 
+     ev-appl-force-arg
+     ; 引数の評価結果を実際の値へ
+     (assign continue (label ev-appl-accumulate-arg))
+     (goto (label force-it))
+     
      ev-appl-accumulate-arg
      (restore unev)
      (restore env)
@@ -89,13 +156,20 @@
      (goto (label ev-appl-operand-loop))
 
      ev-appl-last-arg
-     (assign continue (label ev-appl-accum-last-arg))
+     (assign continue (label ev-appl-force-last-arg))
      (goto (label eval-dispatch))
+
+      ev-appl-force-last-arg
+     ; 最後の引数も実際の値へ
+     (assign continue (label ev-appl-accum-last-arg))
+     (goto (label force-it))
+
      ev-appl-accum-last-arg
      (restore argl)
      (assign argl (op adjoin-arg) (reg val) (reg argl))
      (restore proc)
      (goto (label apply-dispatch))
+
 
      ; 手続き作用
 
@@ -176,10 +250,15 @@
      (save exp); 後のために式を退避
      (save env)
      (save continue)
-     (assign continue (label ev-if-decide))
+     (assign continue (label ev-if-force))
      (assign exp (op if-predicate) (reg exp))
      (goto (label eval-dispatch)); 述語を評価
 
+
+     ev-if-force
+     (assign continue (label ev-if-decide))
+     (goto (label force-it))
+     
      ev-cond ; 5.24
      (save continue)
      (assign unev (op cond-clauses) (reg exp))
@@ -198,8 +277,12 @@
      (save unev)
      (save env)
      (assign exp (op cond-predicate) (reg exp))
-     (assign continue (label ev-cond-decide))
+     (assign continue (label ev-cond-force))
      (goto (label eval-dispatch))
+
+     ev-cond-force
+     (assign continue (label ev-cond-decide))
+     (goto (label force-it))
 
      ev-cond-decide
      ; 術後の評価が終わった
@@ -295,6 +378,11 @@
      (goto (label eval-dispatch))
 
      print-result
+     ; 表示前にthunkを評価
+     (assign continue (label print-result-actual))
+     (goto (label force-it))
+
+     print-result-actual
      (perform (op print-stack-statistics))
      (perform
       (op announce-output) (const ";;; EC-Eval value:"))

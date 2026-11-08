@@ -238,6 +238,34 @@
 
 ; 5.24 cond
 
+; 5.25
+; https://sicp.iijlab.net/fulltext/x422.html
+(define (delay-it exp env)
+  (list 'thunk exp env))
+
+(define (thunk? obj)
+  (tagged-list? obj 'thunk))
+
+(define (thunk-exp thunk)
+  (cadr thunk))
+
+(define (thunk-env thunk)
+  (caddr thunk))
+
+; 評価済みのthunkか
+(define (evaluated-thunk? obj)
+  (tagged-list? obj 'evaluated-thunk))
+
+; 評価済みのthunkの値
+(define (thunk-value thunk)
+  (cadr thunk))
+
+; thunkを評価済みに変更する
+(define (set-thunk-value! thunk value)
+  (set-car! thunk 'evaluated-thunk)
+  (set-car! (cdr thunk) value)
+  (set-cdr! (cdr thunk) '()))
+
 ; --- eceval-operations
 
 (define eceval-operations
@@ -300,6 +328,13 @@
    (list 'first-clause car)
    (list 'rest-clauses cdr)
    (list 'last-exp? last-exp?)
+   (list 'delay-it delay-it)
+   (list 'thunk? thunk?)
+   (list 'thunk-exp thunk-exp)
+   (list 'thunk-env thunk-env)
+   (list 'evaluated-thunk? evaluated-thunk?)
+   (list 'thunk-value thunk-value)
+   (list 'set-thunk-value! set-thunk-value!)
    ))
 
 
