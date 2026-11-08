@@ -486,6 +486,23 @@
 (define (last-operand? ops) (null? (cdr ops)))
 (define (empty-arglist) '())
 (define (adjoin-arg arg arglist) (append arglist (list arg)))
+; 5.25
+(define (delay-it exp env)
+  (list 'thunk exp env))
+(define (thunk? obj)
+  (tagged-list? obj 'thunk))
+(define (thunk-exp obj)
+  (cadr obj))
+(define (thunk-env obj)
+  (caddr obj))
+(define (evaluated-thunk? obj)
+  (tagged-list? obj 'evaluated-thunk))
+(define (thunk-value obj)
+  (cadr obj))
+(define (memoize-thunk! obj value)
+  (set-car! obj 'evaluated-thunk)
+  (set-car! (cdr obj) value)
+  (set-cdr! (cdr obj) '()))
 
 ;; ===== 4.1.3: compound procedures and environments =====
 (define (true? x) (not (eq? x #f)))
@@ -635,7 +652,14 @@
    (list 'eof-object? eof-object?) ; REPL が EOF で停止するように追加
    (list 'get-global-environment get-global-environment)
    (list 'announce-output announce-output)
-   (list 'user-print user-print)))
+   (list 'user-print user-print)
+   (list 'delay-it delay-it)
+   (list 'thunk? thunk?)
+   (list 'thunk-exp thunk-exp)
+   (list 'thunk-env thunk-env)
+   (list 'evaluated-thunk? evaluated-thunk?)
+   (list 'thunk-value thunk-value)
+   (list 'memoize-thunk! memoize-thunk!)))
 
 ;; ============================================================
 ;; 5.4: eval / apply を明示制御するレジスタ計算機
@@ -690,6 +714,10 @@
      (goto (label eval-dispatch))
 
      print-result
+     (assign continue (label print-result-done))
+     (goto (label force-it))
+
+     print-result-done
      (perform (op announce-output) (const ";;; EC-Eval value:"))
      (perform (op user-print) (reg val))
      (goto (label read-eval-print-loop))
@@ -740,7 +768,7 @@
      (save unev)
      (assign exp (op operator) (reg exp))
      (assign continue (label ev-appl-did-operator))
-     (goto (label eval-dispatch))
+     (goto (label actual-value))
 
      ev-appl-did-operator
      (restore unev)
@@ -750,6 +778,23 @@
      (test (op no-operands?) (reg unev))
      (branch (label apply-dispatch))
      (save proc)
+     ;
+     (test (op primitive-procedure?) (reg proc))
+     (branch (label ev-appl-operand-loop))
+     (goto (label ev-appl-delay-loop))
+
+     ev-appl-delay-loop
+     (assign exp (op first-operand) (reg unev))
+     (assign val (op delay-it) (reg exp) (reg env))
+     (assign argl (op adjoin-arg) (reg val) (reg argl))
+     (assign unev (op rest-operands) (reg unev))
+     (test (op no-operands?) (reg unev))
+     (branch (label ev-appl-delay-done))
+     (goto (label ev-appl-delay-loop))
+
+     ev-appl-delay-done
+     (restore proc)
+     (goto (label apply-dispatch))
 
      ev-appl-operand-loop
      (save argl)
@@ -759,7 +804,7 @@
      (save env)
      (save unev)
      (assign continue (label ev-appl-accumulate-arg))
-     (goto (label eval-dispatch))
+     (goto (label actual-value))
 
      ev-appl-accumulate-arg
      (restore unev)
@@ -771,13 +816,58 @@
 
      ev-appl-last-arg
      (assign continue (label ev-appl-accum-last-arg))
-     (goto (label eval-dispatch))
+     (goto (label actual-value))
 
      ev-appl-accum-last-arg
      (restore argl)
      (assign argl (op adjoin-arg) (reg val) (reg argl))
      (restore proc)
      (goto (label apply-dispatch))
+
+     actual-value
+     (save continue)
+     (assign continue (label actual-value-done))
+     (goto (label eval-dispatch))
+
+     force-it
+     (test (op thunk?) (reg val))
+     (branch (label force-thunk))
+     (test (op evaluated-thunk?) (reg val))
+     (branch (label force-evaluated-thunk))
+     (goto (reg continue))
+
+     force-evaluated-thunk
+     (assign val (op thunk-value) (reg val))
+     (goto (reg continue))
+
+     force-thunk
+     (save continue)
+     (save exp)
+     (save env)
+     (save proc)
+     (save argl)
+     (save unev)
+     (save val)
+     (assign exp (op thunk-exp) (reg val))
+     (assign env (op thunk-env) (reg val))
+     (assign continue (label force-thunk-done))
+     (goto (label actual-value))
+
+     force-thunk-done
+     (restore unev)
+     (perform (op memoize-thunk!) (reg unev) (reg val))
+     (restore unev)
+     (restore argl)
+     (restore proc)
+     (restore env)
+     (restore exp)
+     (restore continue)
+     (goto (reg continue))
+     
+
+     actual-value-done
+     (restore continue)
+     (goto (label force-it))
 
      apply-dispatch
      (test (op primitive-procedure?) (reg proc))
@@ -828,7 +918,7 @@
      (save continue)
      (assign continue (label ev-if-decide))
      (assign exp (op if-predicate) (reg exp))
-     (goto (label eval-dispatch))
+     (goto (label actual-value))
 
      ev-if-decide
      (restore continue)
