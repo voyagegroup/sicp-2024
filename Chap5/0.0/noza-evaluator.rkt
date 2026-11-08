@@ -1,8 +1,16 @@
 #lang sicp
 
+(#%require "noza.rkt" "noza-evaluator-support.rkt")
+
+(define the-global-environment (setup-environment))
+
+(define (get-global-environment)
+  the-global-environment)
+
 (define eceval-operations
   (list (list 'prompt-for-input prompt-for-input)
         (list 'read read)
+        (list 'eof-object? eof-object?)
         (list 'get-global-environment get-global-environment)
         (list 'self-evaluating? self-evaluating?)
         (list 'variable? variable?)
@@ -60,6 +68,8 @@
       (perform
        (op prompt-for-input) (const ";;; EC-Eval input:"))
       (assign exp (op read))
+      (test (op eof-object?) (reg exp))
+      (branch (label evaluator-done))
       (assign env (op get-global-environment))
       (assign continue (label print-result))
       (goto (label eval-dispatch))
@@ -274,8 +284,8 @@
     signal-error
       (perform (op user-print) (reg val))
       (goto (label read-eval-print-loop))
-   )))
 
-(define the-global-environment (setup-environment))
+    evaluator-done
+   )))
 
 (start eceval)
