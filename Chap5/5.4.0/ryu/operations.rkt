@@ -49,7 +49,7 @@
             (else
              (scan (cdr vars) (cdr vals)))))
     (if (eq? env the-empty-environment)
-        (error "Unbound variable" var)
+        (make-evaluator-error 'unbound-variable var)
         (let ((frame (first-frame env)))
           (scan (frame-variables frame)
                 (frame-values frame)))))
@@ -161,7 +161,7 @@
             (else
              (scan (cdr vars) (cdr vals)))))
     (if (eq? env the-empty-environment)
-        (error "Unbound variable -- SET!" var)
+        (make-evaluator-error 'unbound-variable-set! var)
         (let ((frame (first-frame env)))
           (scan (frame-variables frame)
                 (frame-values frame)))))
@@ -300,6 +300,9 @@
    (list 'first-clause car)
    (list 'rest-clauses cdr)
    (list 'last-exp? last-exp?)
+   (list 'no-more-exps? null?)
+   (list 'evaluator-error? evaluator-error?)
+   (list 'evaluator-error-message evaluator-error-message)
    ))
 
 

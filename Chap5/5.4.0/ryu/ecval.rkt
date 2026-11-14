@@ -37,6 +37,9 @@
 
      ev-variable
      (assign val (op lookup-variable-value) (reg exp) (reg env))
+     ; 変数の探索結果を検査
+     (test (op evaluator-error?) (reg val))
+     (branch (label evaluator-error))
      (goto (reg continue))
 
      ev-quoted
@@ -116,8 +119,11 @@
      compound-apply
      (assign unev (op procedure-parameters) (reg proc))
      (assign env (op procedure-environment) (reg proc))
-     (assign env (op extend-environment)
+     (assign val (op extend-environment)
              (reg unev) (reg argl) (reg env))
+     (test (op evaluator-error?) (reg val))
+     (branch (label evaluator-error))
+     (assign env (reg val))
      (assign unev (op procedure-body) (reg proc))
      (goto (label ev-sequence))
 
@@ -261,8 +267,10 @@
      (restore continue)
      (restore env)
      (restore unev)
-     (perform
+     (assign val
       (op set-variable-value!) (reg unev) (reg val) (reg env))
+     (test (op evaluator-error?) (reg val))
+     (branch (label evaluator-error))
      (assign val (const ok))
      (goto (reg continue))
 
@@ -309,6 +317,10 @@
      unknown-procedure-type
      (restore continue)    ; スタックを清掃する (apply-dispatchから)
      (assign val (const unknown-procedure-type-error))
+     (goto (label signal-error))
+
+     evaluator-error
+     (assign val (op evaluator-error-message) (reg val))
      (goto (label signal-error))
 
 
