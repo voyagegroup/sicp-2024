@@ -113,6 +113,8 @@
      (assign val (op apply-primitive-procedure)
              (reg proc)
              (reg argl))
+     (test (op evaluator-error?) (reg val))
+     (branch (label evaluator-error))
      (restore continue)
      (goto (reg continue))
 
