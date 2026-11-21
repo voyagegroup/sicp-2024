@@ -1412,7 +1412,6 @@
   ((eceval 'stack) 'print-statistics))
 
 ;; 基本機能が動くかを確かめるための簡単な確認用関数。
-;; 演習問題の解答・測定・分析は含めない。
 (define (check-equal label expression expected evaluator)
   (let ((actual (evaluator expression)))
     (if (equal? actual expected)
