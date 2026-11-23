@@ -486,6 +486,8 @@
 (define (last-operand? ops) (null? (cdr ops)))
 (define (empty-arglist) '())
 (define (adjoin-arg arg arglist) (append arglist (list arg)))
+; 5.32
+(define (symbol-application? exp) (and (pair? exp) (symbol? (operator exp))))
 
 ;; ===== 4.1.3: compound procedures and environments =====
 (define (true? x) (not (eq? x #f)))
@@ -635,7 +637,8 @@
    (list 'eof-object? eof-object?) ; REPL が EOF で停止するように追加
    (list 'get-global-environment get-global-environment)
    (list 'announce-output announce-output)
-   (list 'user-print user-print)))
+   (list 'user-print user-print)
+   (list 'symbol-application? symbol-application?)))
 
 ;; ============================================================
 ;; 5.4: eval / apply を明示制御するレジスタ計算機
@@ -711,6 +714,8 @@
      (branch (label ev-lambda))
      (test (op begin?) (reg exp))
      (branch (label ev-begin))
+     (test (op symbol-application?) (reg exp))
+     (branch (label ev-symbol-application))
      (test (op application?) (reg exp))
      (branch (label ev-application))
      (goto (label unknown-expression-type))
@@ -732,6 +737,18 @@
      (assign exp (op lambda-body) (reg exp))
      (assign val (op make-procedure) (reg unev) (reg exp) (reg env))
      (goto (reg continue))
+
+     ev-symbol-application
+     (save continue)
+     (assign unev (op operands) (reg exp))
+     (assign exp (op operator) (reg exp))
+     ; procをただ変数から探してくるだけで良くなった
+     (assign proc (op lookup-variable-value) (reg exp) (reg env))
+     (assign argl (op empty-arglist))
+     (test (op no-operands?) (reg unev))
+     (branch (label apply-dispatch))
+     (save proc)
+     (goto (label ev-appl-operand-loop))
 
      ev-application
      (save continue)
