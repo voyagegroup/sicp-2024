@@ -2,12 +2,14 @@
 
 (#%require racket/include)
 
+
 (include "compiler.rkt")
 (include "syntax.rkt")
+(include "main.rkt")
 
 
 (statements
- (compile '(+ 1 2) 'val 'next))
+ (compile '(+ 1 2) 'val 'return))
 
 #|
 Welcome to DrRacket, version 8.12 [cs].
