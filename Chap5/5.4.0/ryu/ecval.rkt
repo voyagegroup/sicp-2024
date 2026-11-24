@@ -26,6 +26,8 @@
      (branch (label ev-lambda))
      (test (op begin?) (reg exp))
      (branch (label ev-begin))
+     (test (op symbol-operator-application?) (reg exp)) ; 5.32
+     (branch (label ev-symbol-application))
      (test (op application?) (reg exp))
      (branch (label ev-application))
      (goto (label unknown-expression-type))
@@ -52,6 +54,24 @@
      (assign val (op make-procedure)
              (reg unev) (reg exp) (reg env))
      (goto (reg continue))
+
+     ; 5.32 a 演算子が記号である組合せを, 式の別のクラスと認識し, そういう式の評価
+     ev-symbol-application
+     (save continue)
+     (assign unev (op operands) (reg exp))
+     (assign exp (op operator) (reg exp))
+     (assign val
+             (op lookup-variable-value)
+             (reg exp)
+             (reg env))
+     (test (op evaluator-error?) (reg val))
+     (branch (label evaluator-error))
+     (assign proc (reg val))
+     (assign argl (op empty-arglist))
+     (test (op no-operands?) (reg unev))
+     (branch (label apply-dispatch))
+     (save proc)
+     (goto (label ev-appl-operand-loop))
 
      ; 手続き作用の評価
      ev-application

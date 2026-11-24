@@ -12,6 +12,7 @@
         (list '* *)
         (list '> >)
         (list '< <)
+        (list 'list list)
         (list '/ safe-divide)))
 
 (define (setup-environment)

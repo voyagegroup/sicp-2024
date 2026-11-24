@@ -238,6 +238,12 @@
 
 ; 5.24 cond
 
+; 5.32 a
+(define (symbol-operator-application? exp)
+  (if (application? exp)
+      (symbol? (operator exp))
+      false))
+
 ; --- eceval-operations
 
 (define eceval-operations
@@ -303,6 +309,7 @@
    (list 'no-more-exps? null?)
    (list 'evaluator-error? evaluator-error?)
    (list 'evaluator-error-message evaluator-error-message)
+   (list 'symbol-operator-application? symbol-operator-application?)
    ))
 
 
